@@ -598,28 +598,23 @@ class ConversationStarters(QWidget):
 
 
 # ----------------------------------------------------------------------
-# Avatar — anime sprite with lip-sync, blinking, expressions, idle motion
+# Avatar — fully procedural animated anime woman, 30fps, no static art needed
 # ----------------------------------------------------------------------
 class AvatarWidget(QWidget):
-    """Aisha's animated face.
+    """Aisha's animated anime face.
 
-    Uses real anime sprites from assets/avatar/ when present, otherwise draws a
-    clean stylised anime face so something alive shows immediately. Either way it
-    lip-syncs to her actual voice (audio_level), blinks, changes expression with
-    her state/emotion, and breathes gently when idle.
-
-    Sprite files (transparent PNG portraits) — all optional except neutral.png:
-      neutral.png            default, mouth closed
-      neutral_open.png       mouth open (for lip-sync cross-fade)
-      happy.png / thinking.png / listening.png / sad.png / surprised.png
-      <name>_open.png        open-mouth variant for that expression
-      blink.png              eyes-closed frame
+    Fully drawn in code with QPainter — no sprite images needed, though real
+    sprites in assets/avatar/ will still be layered on top if they exist.
+    Everything animates at ~30fps: blink, breathe, head sway, eye tracking,
+    lip-sync to audio, expression changes.
     """
 
+    # State -> base expression
     STATE_EXPR = {
         "standby": "neutral", "idle": "neutral", "listening": "listening",
         "thinking": "thinking", "speaking": "neutral", "loading": "thinking", "muted": "neutral",
     }
+    # Emotion -> expression override
     EMOTION_EXPR = {
         "happy": "happy", "excited": "happy", "cheerful": "happy", "laughing": "happy",
         "empathetic": "sad", "sad": "sad", "calming": "neutral", "curious": "thinking",
@@ -632,29 +627,62 @@ class AvatarWidget(QWidget):
         self.setFixedSize(size, size)
         self._dir = os.path.join(BASE_DIR, "assets", "avatar")
         self._cache: dict[str, QPixmap | None] = {}
+        self.has_sprites = os.path.isfile(os.path.join(self._dir, "neutral.png"))
+
+        # State
         self._state = "standby"
         self._emotion = "calm"
-        self._level = 0.0          # smoothed mouth-openness (lip-sync)
+        self._current_expr = "neutral"
+        self._target_expr = "neutral"
+        self._expr_t = 1.0  # 0=current, 1=target (smooth transition)
+
+        # Audio-driven lip-sync
+        self._level = 0.0
         self._target_level = 0.0
-        self._blink = 0.0          # 0=open .. 1=closed
+        self._mouth_open = 0.0  # smoothed for rendering
+
+        # Blink
+        self._blink = 0.0       # 0=open .. 1=closed
         self._blink_state = "open"
         self._next_blink = time.time() + random.uniform(2.0, 5.0)
-        self._phase = 0.0
-        self.has_sprites = os.path.isfile(os.path.join(self._dir, "neutral.png"))
+
+        # Animation phase
+        self._phase = random.uniform(0, 6.28)
+        self._mouth_phase = 0.0
+
+        # Eye tracking (mouse position relative to widget)
+        self._gaze_x = 0.0
+        self._gaze_y = 0.0
+        self._target_gaze_x = 0.0
+        self._target_gaze_y = 0.0
+
         self._timer = QTimer(self)
         self._timer.setInterval(33)  # ~30fps
         self._timer.timeout.connect(self._tick)
         self._timer.start()
 
+    # ---- public API ----
     def set_state(self, state: str):
         self._state = state
+        self._apply_expr()
 
     def set_emotion(self, emotion: str):
         self._emotion = emotion
+        self._apply_expr()
 
     def set_level(self, level: float):
         self._target_level = max(0.0, min(1.0, float(level)))
 
+    def _apply_expr(self):
+        emo = self.EMOTION_EXPR.get(self._emotion)
+        if emo and self._state in ("speaking", "standby", "idle", "listening"):
+            self._target_expr = emo
+        else:
+            self._target_expr = self.STATE_EXPR.get(self._state, "neutral")
+        if self._target_expr != self._current_expr:
+            self._expr_t = 0.0
+
+    # ---- sprite helpers (unchanged) ----
     def _pix(self, name: str):
         if name not in self._cache:
             path = os.path.join(self._dir, name)
@@ -662,150 +690,420 @@ class AvatarWidget(QWidget):
             self._cache[name] = pm if (pm and not pm.isNull()) else None
         return self._cache[name]
 
-    def _current_expr(self) -> str:
-        emo = self.EMOTION_EXPR.get(self._emotion)
-        if emo and self._state in ("speaking", "standby", "idle"):
-            return emo
-        return self.STATE_EXPR.get(self._state, "neutral")
-
+    # ---- 30fps tick ----
     def _tick(self):
-        # Smooth the mouth toward the live audio level; decay when not speaking.
-        self._level += (self._target_level - self._level) * 0.45
+        dt = 0.033
+        self._phase += dt
+        self._mouth_phase += dt * (8.0 if self._state == "speaking" else 0.3)
+
+        # Smooth expression transition
+        if self._expr_t < 1.0:
+            self._expr_t = min(1.0, self._expr_t + dt * 4.0)
+        if self._target_expr != self._current_expr and self._expr_t >= 1.0:
+            self._current_expr = self._target_expr
+
+        # Smooth mouth toward audio level
+        self._level += (self._target_level - self._level) * 0.50
         if self._state != "speaking":
-            self._target_level *= 0.6
+            self._target_level *= 0.55
+        target_open = self._level if self._state == "speaking" else 0.0
+        self._mouth_open += (target_open - self._mouth_open) * 0.45
+
         # Blink scheduling
         now = time.time()
         if self._blink_state == "open" and now >= self._next_blink:
             self._blink_state = "closing"
         if self._blink_state == "closing":
-            self._blink = min(1.0, self._blink + 0.34)
+            self._blink = min(1.0, self._blink + 0.38)
             if self._blink >= 1.0:
                 self._blink_state = "opening"
         elif self._blink_state == "opening":
-            self._blink = max(0.0, self._blink - 0.34)
+            self._blink = max(0.0, self._blink - 0.28)
             if self._blink <= 0.0:
                 self._blink_state = "open"
                 self._next_blink = now + random.uniform(2.5, 6.0)
-        self._phase += 0.05
+
+        # Smooth gaze
+        self._gaze_x += (self._target_gaze_x - self._gaze_x) * 0.12
+        self._gaze_y += (self._target_gaze_y - self._gaze_y) * 0.12
+
         self.update()
 
+    # ---- main paint ----
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        bob = math.sin(self._phase) * 2.0
-        sway = math.sin(self._phase * 0.6) * 1.4
-        if self.has_sprites:
-            self._paint_sprites(p, sway, bob)
-        else:
-            self._paint_procedural(p, sway, bob)
 
-    # ---- Real anime sprites ----
-    def _paint_sprites(self, p, sway, bob):
-        expr = self._current_expr()
-        base = self._pix(expr + ".png") or self._pix("neutral.png")
-        if base is None:
-            return
-        scaled = base.scaled(self._size, self._size, Qt.AspectRatioMode.KeepAspectRatio,
-                             Qt.TransformationMode.SmoothTransformation)
-        x = (self._size - scaled.width()) / 2 + sway
-        y = (self._size - scaled.height()) / 2 + bob
-        p.drawPixmap(int(x), int(y), scaled)
-        if self._state == "speaking" and self._level > 0.05:
-            openpm = self._pix(expr + "_open.png") or self._pix("neutral_open.png")
-            if openpm:
-                op = openpm.scaled(self._size, self._size, Qt.AspectRatioMode.KeepAspectRatio,
-                                   Qt.TransformationMode.SmoothTransformation)
-                p.setOpacity(min(1.0, self._level * 1.7))
-                p.drawPixmap(int(x), int(y), op)
-                p.setOpacity(1.0)
+        s = self._size
+        cx = s / 2.0
+        cy = s / 2.0
+
+        # Layered motion offsets
+        breath = math.sin(self._phase * 1.2) * 0.6        # breathing
+        head_tilt = math.sin(self._phase * 0.7) * 0.015   # head tilt radians
+        sway = math.sin(self._phase * 0.55) * 1.2         # gentle sway
+        bob = math.sin(self._phase * 0.9) * 0.8 + breath  # vertical bob
+
+        # If we have sprites, layer them; else draw everything procedurally
+        if self.has_sprites:
+            self._paint_layered(p, cx + sway, cy + bob, s, head_tilt)
+        else:
+            self._paint_full_procedural(p, cx + sway, cy + bob, s, head_tilt)
+
+    # ---- Layered sprite mode (if user drops sprites in assets/avatar/) ----
+    def _paint_layered(self, p, cx, cy, s, tilt):
+        expr = self._target_expr if self._expr_t >= 1.0 else self._current_expr
+        # 1. Hair back
+        back = self._pix("hair_back.png") or self._pix(expr + ".png")
+        if back:
+            self._draw_sprite(p, back, cx, cy - 2, s, 1.05)
+        # 2. Neck
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(235, 200, 180))
+        neck_w = s * 0.10
+        neck_h = s * 0.16
+        p.drawRoundedRect(int(cx - neck_w), int(cy + s * 0.20), int(neck_w * 2), int(neck_h), 6, 6)
+        # 3. Face base
+        base = self._pix("neutral.png") or self._pix(expr + ".png")
+        if base:
+            self._draw_sprite(p, base, cx, cy, s, 1.0)
+        # 4. Eyes (blink overlay)
         if self._blink > 0.05:
             blink = self._pix("blink.png")
             if blink:
-                bp = blink.scaled(self._size, self._size, Qt.AspectRatioMode.KeepAspectRatio,
-                                  Qt.TransformationMode.SmoothTransformation)
-                p.setOpacity(self._blink)
-                p.drawPixmap(int(x), int(y), bp)
-                p.setOpacity(1.0)
+                self._draw_sprite(p, blink, cx, cy, s, 1.0, alpha=self._blink)
+        # 5. Mouth (open overlay for lip-sync)
+        if self._mouth_open > 0.05:
+            open_m = self._pix(expr + "_open.png") or self._pix("neutral_open.png")
+            if open_m:
+                self._draw_sprite(p, open_m, cx, cy, s, 1.0, alpha=min(1.0, self._mouth_open * 1.6))
+        # 6. Expression overlay
+        if expr != "neutral":
+            exp = self._pix(expr + ".png")
+            if exp:
+                self._draw_sprite(p, exp, cx, cy, s, 1.0, alpha=0.85)
 
-    # ---- Built-in stylised anime face (fallback until real sprites are added) ----
-    def _paint_procedural(self, p, sway, bob):
-        s = self._size
-        cx = s / 2 + sway
-        cy = s / 2 + bob
-        expr = self._current_expr()
-        accent = QColor(244, 114, 182)
+    def _draw_sprite(self, p, pm, cx, cy, s, scale=1.0, alpha=1.0):
+        w = int(s * scale)
+        h = int(s * scale)
+        scaled = pm.scaled(w, h, Qt.AspectRatioMode.KeepAspectRatio,
+                           Qt.TransformationMode.SmoothTransformation)
+        if alpha < 1.0:
+            p.setOpacity(alpha)
+        p.drawPixmap(int(cx - w / 2), int(cy - h / 2), scaled)
+        if alpha < 1.0:
+            p.setOpacity(1.0)
 
-        # Hair back
-        p.setBrush(QColor(60, 40, 66))
+    # ---- Full procedural anime woman (no sprites needed) ----
+    def _paint_full_procedural(self, p, cx, cy, s, tilt):
+        expr = self._lerp_expr()
+        expr_t = self._expr_t  # 0..1 transition progress
+
+        p.translate(cx, cy)
+        p.rotate(tilt)
+        p.translate(-cx, -cy)
+
+        # === LAYER 1: Hair back (long flowing dark hair) ===
+        self._draw_hair_back(p, cx, cy, s, expr)
+
+        # === LAYER 2: Neck ===
         p.setPen(Qt.PenStyle.NoPen)
-        p.drawEllipse(QPointF(cx, cy - 4), s * 0.34, s * 0.38)
-        # Face
-        p.setBrush(QColor(255, 226, 210))
-        p.drawEllipse(QPointF(cx, cy), s * 0.27, s * 0.30)
-        # Hair bangs
-        p.setBrush(QColor(72, 48, 80))
-        path = QPainterPath()
-        path.moveTo(cx - s * 0.30, cy - s * 0.10)
-        path.quadTo(cx - s * 0.10, cy - s * 0.40, cx, cy - s * 0.34)
-        path.quadTo(cx + s * 0.12, cy - s * 0.40, cx + s * 0.30, cy - s * 0.10)
-        path.quadTo(cx + s * 0.10, cy - s * 0.24, cx, cy - s * 0.22)
-        path.quadTo(cx - s * 0.10, cy - s * 0.24, cx - s * 0.30, cy - s * 0.10)
-        p.drawPath(path)
+        neck_w = s * 0.10
+        neck_h = s * 0.16
+        p.setBrush(QColor(235, 200, 180))
+        p.drawRoundedRect(int(cx - neck_w), int(cy + s * 0.20), int(neck_w * 2), int(neck_h), 6, 6)
+        # Shoulders hint
+        p.setBrush(QColor(245, 228, 220))
+        p.drawEllipse(QPointF(cx, cy + s * 0.40), s * 0.32, s * 0.10)
 
-        # Eyes (blink = squash vertically)
+        # === LAYER 3: Face shape (oval anime face) ===
+        face_w = s * 0.28
+        face_h = s * 0.33
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(255, 228, 212))
+        p.drawEllipse(QPointF(cx, cy + s * 0.01), face_w, face_h)
+        # Jaw line subtle (chin)
+        p.setBrush(QColor(255, 222, 206))
+        p.drawEllipse(QPointF(cx, cy + s * 0.10), face_w * 0.78, face_h * 0.55)
+
+        # === LAYER 4: Hair front / bangs ===
+        self._draw_hair_front(p, cx, cy, s, expr)
+
+        # === LAYER 5: Eyes (detailed anime eyes) ===
+        self._draw_eyes(p, cx, cy, s, expr, expr_t)
+
+        # === LAYER 6: Eyebrows ===
+        self._draw_eyebrows(p, cx, cy, s, expr, expr_t)
+
+        # === LAYER 7: Nose ===
+        self._draw_nose(p, cx, cy, s)
+
+        # === LAYER 8: Mouth (audio-driven) ===
+        self._draw_mouth(p, cx, cy, s, expr)
+
+        # === LAYER 9: Blush ===
+        self._draw_blush(p, cx, cy, s, expr)
+
+        # === LAYER 10: Accent glow when active ===
+        if self._state in ("listening", "thinking", "speaking"):
+            glow = QColor(244, 114, 182, 25 + int(15 * math.sin(self._phase * 2)))
+            p.setPen(QPen(glow, 2))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawEllipse(QPointF(cx, cy), s * 0.42, s * 0.45)
+
+        p.resetTransform()
+
+    # ---- Hair back: long flowing dark hair behind head ----
+    def _draw_hair_back(self, p, cx, cy, s, expr):
+        p.setPen(Qt.PenStyle.NoPen)
+        # Base hair color: rich dark brown-black
+        base = QColor(45, 28, 55)
+        highlight = QColor(80, 50, 95)
+        p.setBrush(base)
+        # Large oval behind head
+        p.drawEllipse(QPointF(cx, cy - s * 0.02), s * 0.35, s * 0.40)
+        # Long flowing strands (left and right)
+        sway = math.sin(self._phase * 0.6) * 3.0
+        for side in (-1, 1):
+            path = QPainterPath()
+            sx = cx + side * s * 0.22
+            path.moveTo(sx, cy - s * 0.20)
+            ctrl_x = sx + side * (s * 0.08 + sway * 0.5)
+            path.quadTo(ctrl_x, cy + s * 0.15, sx + side * s * 0.04, cy + s * 0.42)
+            path.quadTo(ctrl_x + side * s * 0.02, cy + s * 0.35, sx, cy + s * 0.38)
+            p.setBrush(highlight if side > 0 else base)
+            p.drawPath(path)
+        # Hair highlight streak
+        p.setBrush(QColor(100, 70, 115))
+        p.drawEllipse(QPointF(cx - s * 0.08, cy - s * 0.15), s * 0.08, s * 0.22)
+
+    # ---- Hair front: bangs framing the face ----
+    def _draw_hair_front(self, p, cx, cy, s, expr):
+        p.setPen(Qt.PenStyle.NoPen)
+        base = QColor(50, 30, 60)
+        highlight = QColor(90, 60, 105)
+        # Main bangs shape
+        path = QPainterPath()
+        fw = s * 0.31
+        fh = s * 0.16
+        top_y = cy - s * 0.26
+        path.moveTo(cx - fw, top_y + fh * 0.3)
+        # Left sweep
+        path.quadTo(cx - fw * 0.7, top_y - fh * 0.4, cx - fw * 0.15, top_y - fh * 0.2)
+        # Center dip (between eyebrows)
+        path.quadTo(cx - fw * 0.05, top_y + fh * 0.1, cx, top_y - fh * 0.05)
+        path.quadTo(cx + fw * 0.05, top_y + fh * 0.1, cx + fw * 0.15, top_y - fh * 0.2)
+        # Right sweep
+        path.quadTo(cx + fw * 0.7, top_y - fh * 0.4, cx + fw, top_y + fh * 0.3)
+        path.quadTo(cx + fw * 0.5, top_y + fh * 0.7, cx + fw * 0.15, top_y + fh)
+        path.lineTo(cx - fw * 0.15, top_y + fh)
+        path.quadTo(cx - fw * 0.5, top_y + fh * 0.7, cx - fw, top_y + fh * 0.3)
+        p.setBrush(base)
+        p.drawPath(path)
+        # Strand details
+        for i, off in enumerate([-0.18, -0.06, 0.06, 0.18]):
+            sx = cx + s * off
+            p.setBrush(highlight if i % 2 == 0 else base)
+            p.drawEllipse(QPointF(sx, top_y + s * 0.04), s * 0.015, s * 0.06)
+        # Side locks
+        for side in (-1, 1):
+            sx = cx + side * s * 0.24
+            p.setBrush(base)
+            p.drawEllipse(QPointF(sx, cy + s * 0.02), s * 0.04, s * 0.18)
+
+    # ---- Anime eyes: white, iris, pupil, highlight, cursor tracking ----
+    def _draw_eyes(self, p, cx, cy, s, expr, expr_t):
         eye_dx = s * 0.115
         eye_y = cy + s * 0.02
         eye_w = s * 0.075
-        eye_h = s * 0.10 * (1.0 - self._blink * 0.9)
-        for sign in (-1, 1):
-            ex = cx + sign * eye_dx
+        # Blink squashes height; surprised opens wide
+        blink_squash = 1.0 - self._blink * 0.92
+        surprise_factor = 1.0 + (0.35 if expr == "surprised" else 0.0)
+        eye_h = s * 0.11 * blink_squash * self._lerp(1.0, surprise_factor, expr_t if expr == "surprised" else 0.0)
+        eye_h = max(1.5, eye_h)
+
+        for side in (-1, 1):
+            ex = cx + side * eye_dx
+
+            if eye_h < eye_w * 0.35:
+                # Nearly closed — just a line
+                p.setPen(QPen(QColor(40, 20, 30), 2))
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawArc(int(ex - eye_w), int(eye_y - 1), int(eye_w * 2), 3, 0, 180 * 16)
+                continue
+
+            # White of eye
+            p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(255, 255, 255))
             p.drawEllipse(QPointF(ex, eye_y), eye_w, max(1.0, eye_h))
-            if eye_h > eye_w * 0.4:
-                p.setBrush(QColor(120, 70, 140))  # iris
-                p.drawEllipse(QPointF(ex, eye_y), eye_w * 0.62, max(1.0, eye_h * 0.9))
-                p.setBrush(QColor(20, 12, 24))     # pupil
-                p.drawEllipse(QPointF(ex, eye_y), eye_w * 0.30, max(1.0, eye_h * 0.5))
-                p.setBrush(QColor(255, 255, 255))  # highlight
-                p.drawEllipse(QPointF(ex - eye_w * 0.18, eye_y - eye_h * 0.25), eye_w * 0.12, eye_h * 0.12)
 
-        # Eyebrows / expression
-        p.setPen(QPen(QColor(90, 60, 80), 2))
-        brow_y = cy - s * 0.10
-        if expr == "sad":
-            brow_y += s * 0.01
-        for sign in (-1, 1):
-            bx = cx + sign * eye_dx
-            tilt = s * 0.02 * (1 if (expr == "thinking" and sign < 0) else 0)
-            p.drawLine(int(bx - eye_w), int(brow_y + (s*0.015 if expr=='sad' else 0)),
-                       int(bx + eye_w), int(brow_y - tilt))
+            # Iris (clipped to eye shape — draw a smaller ellipse)
+            iris_w = eye_w * 0.68
+            iris_h = eye_h * 0.88
+            # Shift iris by gaze (clamped so it stays inside the eye)
+            gx = self._gaze_x * eye_w * 0.22
+            gy = self._gaze_y * eye_h * 0.15
+            iris_cx = ex + max(-eye_w * 0.18, min(eye_w * 0.18, gx))
+            iris_cy = eye_y + max(-eye_h * 0.10, min(eye_h * 0.10, gy))
 
-        # Blush for happy
-        if expr == "happy":
+            # Iris color — shifts slightly with expression
+            iris_base = QColor(140, 95, 165)  # soft purple
+            if expr == "happy":
+                iris_base = QColor(120, 130, 170)  # lighter blue-purple
+            elif expr == "thinking":
+                iris_base = QColor(100, 120, 160)
+            elif expr == "sad":
+                iris_base = QColor(100, 110, 150)
+            p.setBrush(iris_base)
+            p.drawEllipse(QPointF(iris_cx, iris_cy), iris_w, max(1.0, iris_h))
+
+            # Pupil
+            pupil_r = eye_w * 0.30
+            p.setBrush(QColor(18, 10, 25))
+            p.drawEllipse(QPointF(iris_cx, iris_cy), pupil_r, max(1.0, pupil_r * 1.1))
+
+            # Eyelid shadow (top gradient)
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor(244, 114, 182, 70))
-            for sign in (-1, 1):
-                p.drawEllipse(QPointF(cx + sign * s * 0.17, cy + s * 0.10), s * 0.045, s * 0.028)
+            shadow_w = eye_w * 2
+            shadow_h = eye_h * 0.35
+            p.setBrush(QColor(60, 30, 50, 50))
+            p.drawEllipse(QPointF(ex, eye_y - eye_h * 0.35), shadow_w, shadow_h)
 
-        # Mouth — opens with the voice (lip-sync); shape hints at emotion
-        p.setPen(Qt.PenStyle.NoPen)
-        mouth_y = cy + s * 0.16
-        open_amt = self._level if self._state == "speaking" else 0.0
-        mw = s * 0.07
-        mh = s * (0.012 + 0.075 * open_amt)
-        p.setBrush(QColor(150, 60, 70))
-        if expr == "happy" and open_amt < 0.2:
-            p.setPen(QPen(QColor(150, 60, 70), 2))
-            p.drawArc(int(cx - mw), int(mouth_y - mh), int(mw * 2), int(mh * 2 + s * 0.05), 200 * 16, 140 * 16)
-        else:
-            p.drawEllipse(QPointF(cx, mouth_y), mw, max(1.0, mh))
-
-        # Soft accent ring when active
-        if self._state in ("listening", "thinking", "speaking"):
-            p.setPen(QPen(QColor(accent.red(), accent.green(), accent.blue(), 60), 2))
+            # Top eyelid line (anime style — thick upper lash)
+            p.setPen(QPen(QColor(30, 15, 35), 2.5))
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawEllipse(QPointF(cx, cy), s * 0.40, s * 0.43)
+            p.drawArc(int(ex - eye_w - 2), int(eye_y - eye_h - 2), int((eye_w + 2) * 2), int(eye_h * 2 + 4),
+                      185 * 16, 170 * 16)
+
+            # Bottom lash line
+            p.setPen(QPen(QColor(60, 35, 55), 1.2))
+            p.drawArc(int(ex - eye_w + 2), int(eye_y + eye_h - 2), int((eye_w - 2) * 2), 8, 10 * 16, 160 * 16)
+
+            # Highlights (anime style — two white dots)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(255, 255, 255, 235))
+            # Main highlight (follows gaze slightly)
+            hl_x = ex + iris_cx * 0.15 - eye_w * 0.22
+            hl_y = eye_y - eye_h * 0.25
+            p.drawEllipse(QPointF(hl_x, hl_y), eye_w * 0.13, eye_h * 0.13)
+            # Secondary small highlight
+            p.setBrush(QColor(255, 255, 255, 180))
+            p.drawEllipse(QPointF(hl_x + eye_w * 0.20, hl_y + eye_h * 0.18), eye_w * 0.06, eye_h * 0.06)
+
+    # ---- Eyebrows (expression-driven) ----
+    def _draw_eyebrows(self, p, cx, cy, s, expr, expr_t):
+        eye_dx = s * 0.115
+        brow_y = cy - s * 0.105
+        bw = s * 0.075
+        thickness = 2.5
+        p.setPen(QPen(QColor(55, 30, 50), thickness))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+
+        for side in (-1, 1):
+            bx = cx + side * eye_dx
+            if expr == "sad" or expr == "empathetic":
+                # Inner corner raised (sympathetic)
+                y1 = brow_y + s * 0.015
+                y2 = brow_y - s * 0.005
+            elif expr == "thinking":
+                # One side raised (left = curious)
+                y1 = brow_y - (s * 0.012 if side < 0 else 0)
+                y2 = brow_y - (s * 0.002 if side > 0 else 0)
+            elif expr == "surprised":
+                y1 = brow_y - s * 0.025
+                y2 = brow_y - s * 0.020
+            elif expr == "happy":
+                y1 = brow_y - s * 0.008
+                y2 = brow_y - s * 0.005
+            else:
+                y1 = brow_y
+                y2 = brow_y
+            p.drawLine(int(bx - bw), int(y1), int(bx + bw), int(y2))
+
+    # ---- Nose (subtle anime dot) ----
+    def _draw_nose(self, p, cx, cy, s):
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(220, 175, 160, 120))
+        p.drawEllipse(QPointF(cx, cy + s * 0.11), s * 0.012, s * 0.010)
+
+    # ---- Mouth: smooth morphing with audio for lip-sync ----
+    def _draw_mouth(self, p, cx, cy, s, expr):
+        mouth_y = cy + s * 0.175
+        p.setPen(Qt.PenStyle.NoPen)
+
+        open_amt = self._mouth_open
+        # Add subtle voice-frequency wobble
+        wobble = math.sin(self._mouth_phase * 3.7) * 0.12 + math.sin(self._mouth_phase * 5.3) * 0.08
+        open_amt = max(0.0, min(1.0, open_amt + wobble * open_amt))
+
+        mw = s * 0.08   # mouth half-width
+        mh_base = s * 0.015
+        mh_speech = s * 0.09 * open_amt
+
+        # Expression-specific mouth shapes
+        if expr == "happy" and open_amt < 0.15:
+            # Smile arc
+            p.setPen(QPen(QColor(170, 75, 85), 2.5))
+            p.setBrush(QColor(200, 90, 100, 40))
+            arc_w = mw * 1.2
+            arc_h = mh_base + s * 0.04
+            p.drawArc(int(cx - arc_w), int(mouth_y - arc_h), int(arc_w * 2), int(arc_h * 2), 210 * 16, 120 * 16)
+        elif expr == "sad":
+            # Frown
+            p.setPen(QPen(QColor(170, 75, 85), 2))
+            p.setBrush(QColor(200, 90, 100, 30))
+            arc_w = mw * 0.8
+            arc_h = mh_base + s * 0.03
+            p.drawArc(int(cx - arc_w), int(mouth_y + s * 0.02), int(arc_w * 2), int(arc_h * 2), 30 * 16, 120 * 16)
+        elif expr == "surprised":
+            # Small o shape
+            p.setBrush(QColor(160, 65, 75))
+            p.drawEllipse(QPointF(cx, mouth_y), mw * 0.5, max(1.0, s * 0.035 + mh_speech * 0.5))
+        else:
+            # Normal / speaking — open ellipse
+            p.setBrush(QColor(155, 62, 72))
+            mh = mh_base + mh_speech
+            # Slight width increase when open (realistic)
+            mw_open = mw * (1.0 + open_amt * 0.25)
+            p.drawEllipse(QPointF(cx, mouth_y + mh * 0.3), max(1.0, mw_open), max(1.0, mh))
+
+    # ---- Blush (emotion-driven, smooth fade) ----
+    def _draw_blush(self, p, cx, cy, s, expr):
+        if expr in ("happy", "cheerful", "laughing"):
+            alpha = 55 + int(20 * math.sin(self._phase * 1.8))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(244, 140, 160, alpha))
+            for side in (-1, 1):
+                p.drawEllipse(QPointF(cx + side * s * 0.175, cy + s * 0.105), s * 0.05, s * 0.03)
+
+    # ---- Helpers ----
+    def _lerp(self, a, b, t):
+        return a + (b - a) * min(1.0, max(0.0, t))
+
+    def _lerp_expr(self):
+        """Return interpolated expression name based on transition progress."""
+        if self._expr_t >= 1.0:
+            return self._target_expr
+        return self._current_expr
+
+    # ---- Mouse tracking for eye gaze ----
+    def mouseMoveEvent(self, event):
+        self._update_gaze(event.pos())
+
+    def enterEvent(self, event):
+        self._update_gaze(event.pos())
+
+    def _update_gaze(self, pos):
+        """Convert mouse position to normalized gaze direction (-1..1)."""
+        dx = (pos.x() - self._size / 2) / (self._size / 2)
+        dy = (pos.y() - self._size / 2) / (self._size / 2)
+        self._target_gaze_x = max(-1.0, min(1.0, dx))
+        self._target_gaze_y = max(-1.0, min(1.0, dy))
+
+    def leaveEvent(self, event):
+        self._target_gaze_x = 0.0
+        self._target_gaze_y = 0.0
 
 
 # ----------------------------------------------------------------------
