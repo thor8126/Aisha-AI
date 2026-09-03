@@ -713,6 +713,7 @@ class ToolRegistry:
                                 "additionalProperties": False,
                             },
                         },
+                        "theme": {"type": "string", "enum": ["violet", "ocean", "sunset", "forest", "mono"], "description": "Optional color theme. Omit for an auto-picked theme. All themes are colorful and designed."},
                         "filename": {"type": "string", "description": "Optional file name without extension."},
                         "open_after": {"type": "boolean", "default": True},
                     },
@@ -2100,52 +2101,138 @@ class ToolRegistry:
         return {"ok": True, "status": status, "type": "docx", "path": path,
                 "sections": len(sections), "paragraphs": para_count, "opened": opened}
 
+    # Built-in color themes so decks look designed, not plain white.
+    _PPT_THEMES = {
+        "violet":  {"bg": (0x1A, 0x14, 0x2E), "panel": (0x2A, 0x1E, 0x48), "accent": (0xF4, 0x72, 0xB6), "accent2": (0xA7, 0x8B, 0xFA), "text": (0xF1, 0xEC, 0xFB), "dim": (0xC4, 0xB5, 0xE0)},
+        "ocean":   {"bg": (0x0B, 0x1E, 0x2E), "panel": (0x10, 0x2E, 0x44), "accent": (0x38, 0xBD, 0xF8), "accent2": (0x34, 0xD3, 0x99), "text": (0xEA, 0xF6, 0xFF), "dim": (0xA8, 0xC8, 0xE0)},
+        "sunset":  {"bg": (0x2A, 0x12, 0x14), "panel": (0x45, 0x1E, 0x1E), "accent": (0xFB, 0x92, 0x3C), "accent2": (0xF4, 0x72, 0x6B), "text": (0xFF, 0xF2, 0xEA), "dim": (0xE8, 0xC8, 0xB8)},
+        "forest":  {"bg": (0x0F, 0x24, 0x1A), "panel": (0x18, 0x3A, 0x2A), "accent": (0x34, 0xD3, 0x99), "accent2": (0xA3, 0xE6, 0x35), "text": (0xEA, 0xFF, 0xF2), "dim": (0xB8, 0xE0, 0xC8)},
+        "mono":    {"bg": (0x14, 0x14, 0x18), "panel": (0x22, 0x22, 0x2A), "accent": (0xF4, 0x72, 0xB6), "accent2": (0x94, 0xA3, 0xB8), "text": (0xF1, 0xF5, 0xF9), "dim": (0xB0, 0xB8, 0xC4)},
+    }
+
     def _create_presentation(self, args: dict) -> dict:
         from pptx import Presentation
-        from pptx.util import Pt as PPt
+        from pptx.util import Pt as PPt, Inches, Emu
+        from pptx.dml.color import RGBColor
+        from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+        from pptx.enum.shapes import MSO_SHAPE
+        import random as _r
 
         title = str(args.get("title", "")).strip() or "Presentation"
         subtitle = str(args.get("subtitle", "")).strip()
         slides = args.get("slides") or []
 
+        theme_name = str(args.get("theme", "")).strip().lower()
+        theme = self._PPT_THEMES.get(theme_name) or self._PPT_THEMES[_r.choice(list(self._PPT_THEMES))]
+
+        def C(rgb):
+            return RGBColor(*rgb)
+
         prs = Presentation()
-        # Title slide
-        s0 = prs.slides.add_slide(prs.slide_layouts[0])
-        s0.shapes.title.text = title
-        if subtitle and len(s0.placeholders) > 1:
-            s0.placeholders[1].text = subtitle
+        prs.slide_width = Inches(13.333)   # 16:9 widescreen
+        prs.slide_height = Inches(7.5)
+        SW, SH = prs.slide_width, prs.slide_height
+        blank = prs.slide_layouts[6]  # fully blank — we draw everything
+
+        def fill_bg(slide, rgb):
+            r = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, SW, SH)
+            r.fill.solid(); r.fill.fore_color.rgb = C(rgb)
+            r.line.fill.background()
+            r.shadow.inherit = False
+            slide.shapes._spTree.remove(r._element)
+            slide.shapes._spTree.insert(2, r._element)  # send to back
+            return r
+
+        def add_rect(slide, x, y, w, h, rgb, line_rgb=None):
+            r = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, w, h)
+            r.fill.solid(); r.fill.fore_color.rgb = C(rgb)
+            if line_rgb:
+                r.line.color.rgb = C(line_rgb); r.line.width = Pt_(1)
+            else:
+                r.line.fill.background()
+            r.shadow.inherit = False
+            return r
+
+        def Pt_(n):
+            return PPt(n)
+
+        def add_text(slide, x, y, w, h, text, size, rgb, bold=False, align=PP_ALIGN.LEFT, font="Segoe UI"):
+            tb = slide.shapes.add_textbox(x, y, w, h)
+            tf = tb.text_frame; tf.word_wrap = True
+            p = tf.paragraphs[0]; p.alignment = align
+            run = p.add_run(); run.text = text
+            run.font.size = Pt_(size); run.font.bold = bold
+            run.font.color.rgb = C(rgb); run.font.name = font
+            return tb
+
+        # ── Title slide ──
+        s0 = prs.slides.add_slide(blank)
+        fill_bg(s0, theme["bg"])
+        # Big accent bar on the left
+        add_rect(s0, 0, 0, Inches(0.35), SH, theme["accent"])
+        # Accent block behind title
+        add_rect(s0, Inches(0.9), Inches(2.4), Inches(5.5), Inches(0.12), theme["accent2"])
+        add_text(s0, Inches(0.9), Inches(2.7), Inches(11.5), Inches(2.0),
+                 title, 46, theme["text"], bold=True)
+        if subtitle:
+            add_text(s0, Inches(0.95), Inches(4.4), Inches(11), Inches(1.0),
+                     subtitle, 22, theme["dim"])
+        # Decorative dots
+        for i in range(3):
+            add_rect(s0, Inches(0.95 + i * 0.5), Inches(5.6), Inches(0.28), Inches(0.28),
+                     theme["accent"] if i == 0 else theme["accent2"])
 
         made = 0
-        for sl in slides:
+        for idx, sl in enumerate(slides):
             if not isinstance(sl, dict):
                 continue
-            layout = prs.slide_layouts[1]  # Title and Content
-            slide = prs.slides.add_slide(layout)
-            slide.shapes.title.text = str(sl.get("title", "")).strip() or f"Slide {made + 1}"
-            body_ph = None
-            for ph in slide.placeholders:
-                if ph.placeholder_format.idx == 1:
-                    body_ph = ph
-                    break
-            if body_ph is not None:
-                tf = body_ph.text_frame
-                tf.clear()
-                bullets = sl.get("bullets") or []
-                if bullets:
-                    for i, b in enumerate(bullets):
-                        para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-                        para.text = str(b).strip()
-                        para.level = 0
-                        para.font.size = PPt(20)
-                else:
-                    tf.paragraphs[0].text = str(sl.get("body", "")).strip()
+            slide = prs.slides.add_slide(blank)
+            fill_bg(slide, theme["bg"])
+            # Left accent strip
+            add_rect(slide, 0, 0, Inches(0.22), SH, theme["accent"])
+            # Slide number chip
+            add_text(slide, Inches(12.2), Inches(0.35), Inches(0.9), Inches(0.5),
+                     f"{idx + 1:02d}", 16, theme["dim"], bold=True, align=PP_ALIGN.RIGHT)
+            # Title + underline
+            head = str(sl.get("title", "")).strip() or f"Slide {idx + 1}"
+            add_text(slide, Inches(0.7), Inches(0.55), Inches(11), Inches(1.1),
+                     head, 32, theme["accent"], bold=True)
+            add_rect(slide, Inches(0.75), Inches(1.55), Inches(3.2), Inches(0.06), theme["accent2"])
+
+            bullets = sl.get("bullets") or []
+            if bullets:
+                # Each bullet on its own soft panel with an accent dot.
+                top = Inches(2.1)
+                gap = Inches(0.15)
+                avail = SH - top - Inches(0.5)
+                bh = min(Inches(1.0), Emu(int((avail - gap * (len(bullets) - 1)) / max(1, len(bullets)))))
+                for i, b in enumerate(bullets):
+                    y = Emu(int(top) + i * (int(bh) + int(gap)))
+                    add_rect(slide, Inches(0.7), y, Inches(11.9), bh, theme["panel"])
+                    add_rect(slide, Inches(0.7), y, Inches(0.10), bh, theme["accent"])
+                    tb = slide.shapes.add_textbox(Inches(1.05), y, Inches(11.3), bh)
+                    tf = tb.text_frame; tf.word_wrap = True
+                    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+                    p = tf.paragraphs[0]
+                    run = p.add_run(); run.text = str(b).strip()
+                    run.font.size = Pt_(19); run.font.color.rgb = C(theme["text"])
+                    run.font.name = "Segoe UI"
+            else:
+                body = str(sl.get("body", "")).strip()
+                add_rect(slide, Inches(0.7), Inches(2.1), Inches(11.9), Inches(4.4), theme["panel"])
+                tb = slide.shapes.add_textbox(Inches(1.05), Inches(2.4), Inches(11.2), Inches(3.9))
+                tf = tb.text_frame; tf.word_wrap = True
+                p = tf.paragraphs[0]
+                run = p.add_run(); run.text = body
+                run.font.size = Pt_(20); run.font.color.rgb = C(theme["text"])
+                run.font.name = "Segoe UI"
             made += 1
 
         path = self._unique_path(args.get("filename") or title, "pptx")
         prs.save(path)
         opened = self._maybe_open(path, bool(args.get("open_after", True)))
         return {"ok": True, "status": "created", "type": "pptx", "path": path,
-                "slides": made + 1, "opened": opened}
+                "slides": made + 1, "theme": theme_name or "auto", "opened": opened}
 
     def _create_spreadsheet(self, args: dict) -> dict:
         from openpyxl import Workbook
@@ -2205,24 +2292,172 @@ class ToolRegistry:
         except Exception as e:
             return {"error": str(e), "tip": "Check internet connection and try again"}
 
-    def _music_search(self, args: dict) -> dict:
-        import subprocess, webbrowser, urllib.parse
-        query = str(args.get("query", ""))
-        service = str(args.get("service", "auto"))
-        if not query:
-            return {"error": "query required"}
-        if service in ("spotify", "auto"):
-            try:
-                subprocess.run(["powershell", "-Command", f"Start-Process 'spotify:search:{urllib.parse.quote(query)}'"], capture_output=True, timeout=5)
-                return {"status": "opened_spotify", "query": query}
-            except Exception:
-                pass
+    # Fallbacks for "play some music" — real popular tracks, not random noise.
+    _RANDOM_SONGS = [
+        "Kesariya Brahmastra song",
+        "Tum Hi Ho Aashiqui 2 song",
+        "Apna Bana Le Bhediya song",
+        "Chaleya Jawan song",
+        "Arijit Singh best songs",
+        "trending bollywood song 2024",
+    ]
+
+    @staticmethod
+    def _parse_duration(txt: str) -> int:
+        """'3:15' -> 195 seconds. '1:02:30' -> 3750. Empty/LIVE -> 0."""
         try:
-            url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
-            webbrowser.open(url)
-            return {"status": "opened_youtube", "query": query}
+            parts = [int(p) for p in str(txt).strip().split(":")]
+        except Exception:
+            return 0
+        secs = 0
+        for p in parts:
+            secs = secs * 60 + p
+        return secs
+
+    @staticmethod
+    def _parse_views(txt: str) -> int:
+        """'254,309,642 views' -> 254309642."""
+        import re as _re
+        m = _re.search(r"([\d,]+)", str(txt))
+        return int(m.group(1).replace(",", "")) if m else 0
+
+    def _youtube_best_song(self, query: str) -> dict | None:
+        """Pick the best real SONG for a query from YouTube search results.
+
+        Parses ytInitialData for full metadata, then scores candidates to avoid
+        the junk the raw first-result gives (Shorts, hour-long compilations,
+        'trending 2026 PLAYLIST' megamixes). Prefers a normal-length music video
+        (~1.5–8 min) with high view count and a song-like title.
+        """
+        import urllib.parse, urllib.request, re as _re, json as _json
+        try:
+            url = "https://www.youtube.com/results?" + urllib.parse.urlencode({"search_query": query})
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
+            })
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                html = resp.read(1_500_000).decode("utf-8", "ignore")
+
+            m = _re.search(r"var ytInitialData\s*=\s*(\{.*?\});</script>", html, _re.DOTALL) \
+                or _re.search(r'ytInitialData\"\]\s*=\s*(\{.*?\});', html, _re.DOTALL)
+            if not m:
+                # Fallback: raw first video id, better than nothing.
+                m2 = _re.search(r'"videoId":"([A-Za-z0-9_-]{11})"', html)
+                return {"video_id": m2.group(1), "title": query} if m2 else None
+
+            data = _json.loads(m.group(1))
+            vids: list[dict] = []
+
+            def walk(o):
+                if isinstance(o, dict):
+                    if "videoRenderer" in o and isinstance(o["videoRenderer"], dict):
+                        vids.append(o["videoRenderer"])
+                    for v in o.values():
+                        walk(v)
+                elif isinstance(o, list):
+                    for v in o:
+                        walk(v)
+            walk(data)
+
+            junk_words = ("playlist", "jukebox", "mashup", "mega mix", "megamix",
+                          "all songs", "nonstop", "non stop", "compilation",
+                          "trending songs", "top songs", "lofi", "1 hour", "1hour")
+
+            best = None
+            best_score = -1.0
+            for idx, vr in enumerate(vids[:15]):
+                vid = vr.get("videoId")
+                if not vid:
+                    continue
+                title = "".join(r.get("text", "") for r in vr.get("title", {}).get("runs", []))
+                dur = self._parse_duration(vr.get("lengthText", {}).get("simpleText", ""))
+                views = self._parse_views(vr.get("viewCountText", {}).get("simpleText", ""))
+                tl = title.lower()
+
+                # Hard skips: Shorts (<60s), live (dur 0 with no length), long comps (>10min).
+                if dur and dur < 60:
+                    continue
+                if dur > 600:
+                    continue
+                if any(w in tl for w in junk_words):
+                    continue
+
+                # Score: result ORDER matters most (YouTube already ranks relevance
+                # for the query), then views, then ideal song length. This keeps the
+                # user's exact song at the top instead of a higher-view different one.
+                score = 0.0
+                score += max(0, 30 - idx * 3)   # strong preference for top results
+                if views > 0:
+                    import math
+                    score += math.log10(views + 10) * 4
+                if 90 <= dur <= 360:      # ~1.5–6 min = classic single
+                    score += 8
+                elif dur <= 480:
+                    score += 3
+                if any(w in tl for w in ("official", "video", "song", "audio", "lyrical")):
+                    score += 3
+
+                if score > best_score:
+                    best_score = score
+                    best = {"video_id": vid, "title": title, "duration": dur, "views": views}
+
+            if best:
+                return best
+            # Nothing passed filters — take the first non-Short as a last resort.
+            for vr in vids[:15]:
+                if vr.get("videoId") and self._parse_duration(
+                        vr.get("lengthText", {}).get("simpleText", "")) >= 60:
+                    return {"video_id": vr["videoId"],
+                            "title": "".join(r.get("text", "") for r in vr.get("title", {}).get("runs", []))}
+            return None
+        except Exception:
+            return None
+
+    def _music_search(self, args: dict) -> dict:
+        """Actually PLAY a good song. Picks a real popular track on YouTube
+        (skips Shorts and hour-long compilations) and opens it (autoplays) in the
+        default browser. If no song is named, plays a trending one — job gets done.
+        """
+        import webbrowser, urllib.parse, random as _r
+        query = str(args.get("query", "")).strip()
+
+        picked_random = not query
+        if not query:
+            query = _r.choice(self._RANDOM_SONGS)
+
+        # Only nudge very generic one/two-word queries toward "song"; longer or
+        # already-song-like queries are searched verbatim so the user's exact
+        # track ranks first (YouTube's own relevance is best for specific names).
+        search_q = query
+        words = query.split()
+        if len(words) <= 2 and not any(
+            w in query.lower() for w in ("song", "official", "video", "audio", "gaana", "gana")
+        ):
+            search_q = query + " song"
+
+        best = self._youtube_best_song(search_q) or self._youtube_best_song(query)
+        if best and best.get("video_id"):
+            vid = best["video_id"]
+            watch = f"https://www.youtube.com/watch?v={vid}"
+            try:
+                webbrowser.open(watch, new=2)
+                return {"ok": True, "status": "playing", "query": query,
+                        "random": picked_random, "url": watch, "video_id": vid,
+                        "playing_title": best.get("title", ""),
+                        "note": f"Playing: {best.get('title', query)}"}
+            except Exception as e:
+                return {"ok": False, "error": str(e)}
+
+        # Last-resort fallback: open the search page.
+        try:
+            url = "https://www.youtube.com/results?" + urllib.parse.urlencode({"search_query": query})
+            webbrowser.open(url, new=2)
+            return {"ok": True, "status": "opened_search", "query": query,
+                    "random": picked_random, "url": url,
+                    "note": "Opened YouTube search; top result is the song."}
         except Exception as e:
-            return {"error": str(e)}
+            return {"ok": False, "error": str(e)}
 
     def _song_lyrics_generate(self, args: dict) -> dict:
         from agent_brain import AutonomousAgent

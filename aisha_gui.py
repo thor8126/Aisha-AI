@@ -66,6 +66,18 @@ except Exception:
     pass
 # (In Qt6 high-DPI pixmaps are always enabled, so no AA_UseHighDpiPixmaps needed.)
 
+# QtWebEngine (used for the Live2D avatar) requires shared OpenGL contexts and
+# must be imported BEFORE any QApplication is created. Do it here at import time
+# so the real rigged avatar is available; failure just disables Live2D.
+_WEBENGINE_OK = False
+try:
+    if QApplication.instance() is None:
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
+    import PyQt6.QtWebEngineWidgets  # noqa: F401  (import registers the module early)
+    _WEBENGINE_OK = True
+except Exception:
+    _WEBENGINE_OK = False
+
 # ----------------------------------------------------------------------
 # Paths
 # ----------------------------------------------------------------------
@@ -211,6 +223,8 @@ class GuiSignals(QObject):
     # Live "what she is doing right now" during multi-step tool work.
     # Payload: (step_number, human-readable label). step_number 0 clears the feed.
     activity = pyqtSignal(int, str)
+    # A newer release is available. Payload: info dict from updater.check_for_update.
+    update_available = pyqtSignal(object)
 
 
 SIGNALS = GuiSignals()
@@ -1089,13 +1103,14 @@ class AvatarWidget(QWidget):
 
     # ---- Mouse tracking for eye gaze ----
     def mouseMoveEvent(self, event):
-        self._update_gaze(event.pos())
+        self._update_gaze(event.position())
 
     def enterEvent(self, event):
-        self._update_gaze(event.pos())
+        # QEnterEvent exposes position() in PyQt6 (not pos()).
+        self._update_gaze(event.position())
 
     def _update_gaze(self, pos):
-        """Convert mouse position to normalized gaze direction (-1..1)."""
+        """Convert mouse position (QPointF) to normalized gaze direction (-1..1)."""
         dx = (pos.x() - self._size / 2) / (self._size / 2)
         dy = (pos.y() - self._size / 2) / (self._size / 2)
         self._target_gaze_x = max(-1.0, min(1.0, dx))
@@ -1104,6 +1119,114 @@ class AvatarWidget(QWidget):
     def leaveEvent(self, event):
         self._target_gaze_x = 0.0
         self._target_gaze_y = 0.0
+
+
+# ----------------------------------------------------------------------
+# Live2D avatar — real rigged VTuber model (Hiyori) rendered via web runtime
+# ----------------------------------------------------------------------
+_LIVE2D_HTML = os.path.join(BASE_DIR, "assets", "live2d", "web", "avatar.html")
+_LIVE2D_MODEL = os.path.join(BASE_DIR, "assets", "live2d", "web", "hiyori",
+                             "hiyori_pro_t11.model3.json")
+
+
+def _live2d_available() -> bool:
+    """True when QtWebEngine loaded early and the model files are present."""
+    return bool(
+        _WEBENGINE_OK
+        and os.path.isfile(_LIVE2D_HTML)
+        and os.path.isfile(_LIVE2D_MODEL)
+    )
+
+
+class Live2DAvatarWidget(QWidget):
+    """A real rigged Live2D model rendered in an embedded web view.
+
+    Exposes the same public API as the procedural AvatarWidget
+    (set_state / set_emotion / set_level) so it's a drop-in replacement.
+    Blink, breathing, physics and idle motion run inside the model; Python
+    only pushes state, emotion and live voice amplitude for lip-sync.
+    """
+
+    def __init__(self, parent=None, size=190, height=None):
+        super().__init__(parent)
+        self._size = size
+        self._height = height or size
+        self.setFixedSize(size, self._height)
+
+        from PyQt6.QtWebEngineWidgets import QWebEngineView
+        from PyQt6.QtWebEngineCore import QWebEngineSettings
+        from PyQt6.QtCore import QUrl
+
+        # Make the host widget itself translucent so nothing paints white behind.
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+
+        self._view = QWebEngineView(self)
+        self._view.setFixedSize(size, self._height)
+        self._view.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self._view.setStyleSheet("background: transparent;")
+        # Transparent page background so the card shows through.
+        try:
+            self._view.page().setBackgroundColor(Qt.GlobalColor.transparent)
+        except Exception:
+            pass
+        s = self._view.settings()
+        try:
+            s.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+            s.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+            s.setAttribute(QWebEngineSettings.WebAttribute.ShowScrollBars, False)
+        except Exception:
+            pass
+
+        self._ready = False
+        self._pending = []  # JS calls queued until the page loads
+        self._state = "standby"
+        self._emotion = "calm"
+        self._view.loadFinished.connect(self._on_loaded)
+        self._view.load(QUrl.fromLocalFile(_LIVE2D_HTML))
+
+    def _on_loaded(self, ok: bool):
+        self._ready = bool(ok)
+        # Flush queued calls (e.g. state set before the page finished loading).
+        for js in self._pending:
+            self._run(js)
+        self._pending.clear()
+
+    def _run(self, js: str):
+        if not self._ready:
+            self._pending.append(js)
+            return
+        try:
+            self._view.page().runJavaScript(js)
+        except Exception:
+            pass
+
+    # ---- public API (matches AvatarWidget) ----
+    def set_state(self, state: str):
+        self._state = state
+        self._run(f"window.setState && window.setState({json.dumps(state)});")
+
+    def set_emotion(self, emotion: str):
+        self._emotion = emotion
+        self._run(f"window.setEmotion && window.setEmotion({json.dumps(emotion)});")
+
+    def set_level(self, level: float):
+        lvl = max(0.0, min(1.0, float(level)))
+        self._run(f"window.setAudioLevel && window.setAudioLevel({lvl:.3f});")
+
+
+def make_avatar(parent=None, size=190, height=None):
+    """Return the best available avatar widget.
+
+    Prefers the real rigged Live2D model; falls back to the procedural
+    QPainter face if QtWebEngine or the model files are unavailable.
+    `height` lets the avatar be taller than wide (portrait framing).
+    """
+    if _live2d_available():
+        try:
+            return Live2DAvatarWidget(parent, size=size, height=height)
+        except Exception:
+            pass
+    return AvatarWidget(parent, size=size)
 
 
 # ----------------------------------------------------------------------
@@ -1736,8 +1859,8 @@ class AishaCard(QWidget):
         for surface in self._drag_surfaces:
             surface.installEventFilter(self)
 
-        # ---- Avatar (animated anime face — lip-syncs, blinks, emotes) ----
-        self.avatar = AvatarWidget(size=190)
+        # ---- Avatar (real Live2D model if available, else procedural face) ----
+        self.avatar = make_avatar(size=300, height=360)
         avatar_row = QHBoxLayout()
         avatar_row.setContentsMargins(0, 2, 0, 2)
         avatar_row.addStretch()
@@ -2395,9 +2518,43 @@ class AishaTray(QSystemTrayIcon):
         super().__init__()
         self.card = card
         self.app = app
+        self._update_info = None
         self._create_icon()
         self._build_menu()
         self.show()
+        try:
+            SIGNALS.update_available.connect(self._on_update_available)
+        except Exception:
+            pass
+
+    def _on_update_available(self, info):
+        """A newer release exists — notify the user via a tray balloon."""
+        self._update_info = info
+        try:
+            ver = info.get("version", "?")
+            self.showMessage(
+                "Aisha update available",
+                f"Version {ver} is ready. Right-click the tray icon → 'Update Aisha' to install.",
+                QSystemTrayIcon.MessageIcon.Information,
+                8000,
+            )
+            self._build_menu()  # rebuild so the "Update Aisha" item appears
+        except Exception:
+            pass
+
+    def _do_update(self):
+        info = self._update_info
+        if not info:
+            return
+        try:
+            import updater
+            self.showMessage("Aisha", "Downloading update… she'll restart when ready.",
+                             QSystemTrayIcon.MessageIcon.Information, 5000)
+            if updater.apply_update(info):
+                # Swap scheduled — exit so the batch can replace files in place.
+                self.app.quit()
+        except Exception:
+            pass
 
     def _create_icon(self):
         pix = QPixmap(32, 32)
@@ -2466,6 +2623,13 @@ class AishaTray(QSystemTrayIcon):
         for label, handler in actions:
             a = menu.addAction(label)
             a.triggered.connect(handler)
+
+        # Show an "Update" item only when a newer release has been detected.
+        if getattr(self, "_update_info", None):
+            menu.addSeparator()
+            ver = self._update_info.get("version", "")
+            up = menu.addAction(f"⬆ Update Aisha (v{ver})")
+            up.triggered.connect(self._do_update)
 
         menu.addSeparator()
         quit_a = menu.addAction("Exit Aisha")

@@ -46,3 +46,10 @@ logs/*.log
 *.spec
 *.exe
 *.msi
+
+# Temp dev scripts and texture backups
+_test_*.py
+_shot.py
+_recolor.py
+_img.py
+*.orig.png

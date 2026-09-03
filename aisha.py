@@ -232,10 +232,55 @@ def fix_hindi_grammar(text: str) -> str:
     return result
 
 
+def dedupe_runaway(text: str) -> str:
+    """Catch runaway repetition loops (weak models sometimes repeat a phrase/sentence
+    dozens of times). Truncate at the point repetition begins so the user never sees it.
+    """
+    if not text or len(text) < 120:
+        return text
+
+    # 1. Sentence-level: split on Devanagari/Latin sentence enders, drop once a
+    #    sentence (normalized) has already appeared — and stop entirely at the 2nd
+    #    time we see a repeat, since that means the model has started looping.
+    parts = re.split(r'(?<=[।!?.])\s+', text)
+    seen = {}
+    out = []
+    repeats = 0
+    for p in parts:
+        norm = re.sub(r'\s+', ' ', p).strip().lower()
+        if len(norm) < 8:
+            out.append(p)
+            continue
+        if norm in seen:
+            repeats += 1
+            if repeats >= 1:
+                # A whole sentence repeated → the loop has begun. Stop here.
+                break
+            continue
+        seen[norm] = True
+        out.append(p)
+    result = " ".join(out).strip()
+
+    # 2. Phrase-level fallback: if a ~40-char window recurs 3+ times back-to-back,
+    #    cut at the first recurrence.
+    if len(result) > 300:
+        window = 45
+        head = result[:window]
+        second = result.find(head, window)
+        if 0 < second < len(result) - window:
+            # head reappears; if it appears yet again soon after, it's a loop.
+            third = result.find(head, second + window)
+            if third > 0:
+                result = result[:second].strip()
+
+    return result or text
+
+
 def strip_llm_garbage(text: str) -> str:
     """Remove meta-commentary, notes, self-corrections, and non-Hindi garbage from LLM output."""
     if not text:
         return text
+    text = dedupe_runaway(text)
 
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.IGNORECASE | re.DOTALL)
     meta_words = r"note|wait|actually|let me|i should|mistake|accident|russian|language|correction"
@@ -861,6 +906,13 @@ class AishaAssistant:
         if response_emotion == "neutral" and self._last_user_mood in self.VOICE_PRESETS:
             response_emotion = self._last_user_mood
 
+        # Drive the avatar's facial expression to match what she's saying.
+        try:
+            from aisha_gui import SIGNALS as _ESIG
+            _ESIG.emotion_changed.emit(response_emotion)
+        except Exception:
+            pass
+
         _tts_start = time.time()
         try:
             # Short/normal replies (the common case with max_tokens ~450) are
@@ -1085,9 +1137,12 @@ class AishaAssistant:
                 f"is folder me save hoti hai: {out_dir}\n"
                 f"Is folder ki recent files (newest first):\n{files_block}\n"
                 "RULES:\n"
-                "- Jab user kahe 'the word file', 'wo essay', 'that document', 'file kholo', "
-                "'usko open karo' — to isi folder ki matching file use kar. search_and_open_file "
-                "tool call kar us naam se; wo yahi folder pehle dekhta hai.\n"
+                "- Ye saari files TUNE hi banayi hain (chahe aaj ya kisi bhi din). Inhe apni "
+                "banayi hui file maano. Agar upar list me koi file hai to KABHI mat kaho 'maine "
+                "aisi koi file nahi banayi' — wo file maujood hai, use kholo/use karo.\n"
+                "- Jab user kahe 'the word file', 'wo essay', 'that document', 'jo tumne banayi thi', "
+                "'file kholo', 'usko open karo' — to upar di gayi list me se best matching file "
+                "chuno aur search_and_open_file tool call karo us naam se.\n"
                 "- Existing document me kuch add karna ho to create_document ko append_to ke saath "
                 "us file ke naam se call kar.\n"
                 f"- In files ke liye kabhi C:\\Users\\... jaisa path mat guess kar. Ye sirf {out_dir} me hain.\n"
@@ -1541,6 +1596,24 @@ if __name__ == "__main__":
         # Default: Launch Assistant in background thread + Native Screen Layover HUD & System Tray
         import aisha_gui
         layover, tray = aisha_gui.launch_aisha_gui(assistant)
+
+        # Background: check GitHub for a newer release (frozen builds only).
+        def _bg_update_check():
+            try:
+                import updater
+                if not updater.is_frozen():
+                    return
+                info = updater.check_for_update()
+                if info:
+                    log.info(f"Update available: v{info['version']}")
+                    try:
+                        from aisha_gui import SIGNALS
+                        SIGNALS.update_available.emit(info)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        threading.Thread(target=_bg_update_check, daemon=True).start()
 
         bg_worker = threading.Thread(target=assistant.run, kwargs={"idle_timeout": arguments.idle_timeout}, daemon=True)
         bg_worker.start()

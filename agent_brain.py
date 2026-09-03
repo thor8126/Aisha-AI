@@ -27,6 +27,34 @@ from typing import Any
 from assistant_tools import TOOL_DEFINITIONS, ToolRegistry, execute_tool
 
 
+def _truncate_runaway(text: str) -> str:
+    """Detect and cut a runaway repetition loop in generated text.
+
+    Weak fallback models sometimes repeat a sentence/phrase dozens of times.
+    We stop the reply at the point a full sentence (or long phrase) first
+    repeats, so the loop never reaches TTS or the user.
+    """
+    if not text or len(text) < 120:
+        return text
+    parts = re.split(r'(?<=[।!?.])\s+', text)
+    seen = set()
+    kept = []
+    for p in parts:
+        norm = re.sub(r'\s+', ' ', p).strip().lower()
+        if len(norm) >= 8 and norm in seen:
+            break  # loop detected — stop here
+        if len(norm) >= 8:
+            seen.add(norm)
+        kept.append(p)
+    result = " ".join(kept).strip()
+    if len(result) > 300:
+        head = result[:45]
+        second = result.find(head, 45)
+        if 0 < second < len(result) - 45 and result.find(head, second + 45) > 0:
+            result = result[:second].strip()
+    return result or text[:400]
+
+
 RUNTIME_INSTRUCTIONS = """<runtime_rules>
 You are Aisha — a 22-year-old girl who lives on the user's Windows PC. She is the user's close friend, NOT an assistant.
 
@@ -50,6 +78,8 @@ TASK EXECUTION RULES:
 - Keyboard SHORTCUTS inside an app (Ctrl+A, Ctrl+C, Ctrl+V, Ctrl+S, Enter, Delete, etc.) must be sent as key presses, NOT typed as text. Never pass a shortcut like "Ctrl+A" to a type action — that types the literal letters. Use computer_control with focus_window first, then hotkey/press steps, e.g. select-all-and-copy in Notepad: [{action:'focus_window',title:'Notepad'},{action:'hotkey',keys:'ctrl+a'},{action:'hotkey',keys:'ctrl+c'}].
 - Any task that acts INSIDE a specific app (type, select, copy, click, a shortcut) must focus that app's window first (focus_window step). Input always goes to the focused window.
 - Never claim you typed/searched/opened something unless the tool actually ran and returned ok. If a tool returns an error or you did not call it, say so honestly instead of pretending it worked.
+- MUSIC / SONGS: when the user asks to play a song or "koi gaana suna do" / "play some music", CALL the music_search tool with the song name as query (leave query empty for a random song). Do NOT just say "khol deti hoon" without calling it. The tool opens and plays it on YouTube. After it returns ok, say ONE short line like "सजदा चला दिया, सुनो!" — do NOT describe clicking, waiting, or the screen.
+- ONE SHORT CONFIRMATION ONLY: after a tool succeeds, reply with a SINGLE short sentence. NEVER repeat yourself, never write the same phrase twice, never pad with "chalo ab suno... maza le lo... main yahan hoon" over and over. If you catch yourself repeating, STOP immediately.
 
 SEEING THE SCREEN (you have real vision):
 - inspect_screen actually READS the screen (returns 'screen_view' with the visible text, app, chat, buttons, errors). Use it when the user asks "what's on screen" or to READ something (a message, an error, a chat).
@@ -83,6 +113,8 @@ CREATING DOCUMENTS / PRESENTATIONS / SPREADSHEETS (dynamic, any topic):
   - create_document — Word (.docx) essays, letters, reports, notes. You write the full content and pass a title + sections (heading, body paragraphs, bullets). It formats, saves to Documents, and opens it.
   - create_presentation — PowerPoint (.pptx). Pass a title + slides (each a title and bullets/body). It builds and opens the deck.
   - create_spreadsheet — Excel (.xlsx). Pass sheets with headers + rows.
+- ASK FIRST WHEN THE TOPIC IS MISSING: if the user asks for a document/PPT/sheet but does NOT say WHAT it should be about (e.g. "ek 3 page ki PPT bana do" with no subject), do NOT invent a random topic. Ask ONE short question first: "किस topic पर banau?" Only create it once you know the subject. It is wrong to guess the content and make something they did not ask for.
+- RESPECT THE EXACT COUNT: if they say "3 page" / "3 slides" / "5 rows", make EXACTLY that many — not 4, not 2. Match the number they gave.
 - YOU generate the actual content (the essay text, the slide bullet points, the table data) — the tool only does the formatting/saving/opening. So write real, complete, well-structured content, not placeholders.
 - These open the finished file automatically, so you do NOT also need to open the app separately.
 - Every file is saved to ONE fixed folder (the tool result includes the exact 'path'). ALWAYS tell the user where you saved it — name the folder (e.g. "E:\\AishaFiles में save कर दिया") so nothing is ever lost. Never save files to random/temporary locations.
@@ -428,6 +460,10 @@ class AutonomousAgent:
             max_tokens=self.max_tokens,
             temperature=0.68,
             top_p=0.90,
+            # Penalise repeated tokens/phrases so weak models can't fall into a
+            # runaway loop (the "gaana chal raha hai... chal raha hai..." bug).
+            frequency_penalty=0.5,
+            presence_penalty=0.3,
             **extra_kwargs,
         )
         choice = res.choices[0]
@@ -686,6 +722,8 @@ class AutonomousAgent:
             text_reply = self._extract_text(assistant_content)
             if not text_reply:
                 text_reply = "Kaam poora ho gaya."
+            # Guard against runaway repetition from a degraded fallback model.
+            text_reply = _truncate_runaway(text_reply)
             # Record the assistant's own reply in the thread so the next turn sees a
             # proper alternating conversation (and doesn't stack two user turns in a
             # row after a tool-free chat reply).

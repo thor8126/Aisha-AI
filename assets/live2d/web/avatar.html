@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: transparent; overflow: hidden;
+  }
+  #canvas { width: 100%; height: 100%; display: block; }
+  #err {
+    position: absolute; top: 8px; left: 8px; right: 8px;
+    color: #f9a8d4; font: 11px 'Segoe UI', sans-serif;
+    background: rgba(20,10,25,0.6); padding: 6px 8px; border-radius: 6px;
+    display: none; white-space: pre-wrap;
+  }
+</style>
+<!-- Local libraries (bundled — no internet needed) -->
+<script src="lib/live2dcubismcore.min.js"></script>
+<script src="lib/pixi.min.js"></script>
+<script src="lib/cubism4.min.js"></script>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="err"></div>
+<script>
+"use strict";
+
+// ── State driven from Python ──
+const AV = {
+  model: null,
+  app: null,
+  audioLevel: 0,      // 0..1 live voice amplitude (lip-sync)
+  mouthSmooth: 0,     // smoothed mouth open
+  state: "standby",   // standby/listening/thinking/speaking
+  emotion: "calm",
+  ready: false,
+  t: 0,
+  // Cubism parameter ids (standard for Hiyori / most models)
+  P: {
+    mouthOpen: "ParamMouthOpenY",
+    mouthForm: "ParamMouthForm",
+    eyeLOpen:  "ParamEyeLOpen",
+    eyeROpen:  "ParamEyeROpen",
+    eyeBallX:  "ParamEyeBallX",
+    eyeBallY:  "ParamEyeBallY",
+    browLY:    "ParamBrowLY",
+    browRY:    "ParamBrowRY",
+    angleX:    "ParamAngleX",
+    angleY:    "ParamAngleY",
+    angleZ:    "ParamAngleZ",
+    bodyAngleX:"ParamBodyAngleX",
+    breath:    "ParamBreath",
+  },
+  gazeX: 0, gazeY: 0,
+};
+
+function showErr(msg) {
+  const e = document.getElementById("err");
+  e.style.display = "block";
+  e.textContent = String(msg);
+}
+
+// ── Public API (called from Python via runJavaScript) ──
+window.setAudioLevel = function(v) { AV.audioLevel = Math.max(0, Math.min(1, v)); };
+window.setState = function(s) { AV.state = s; };
+window.setEmotion = function(e) { AV.emotion = e; };
+window.setGaze = function(x, y) { AV.gazeX = x; AV.gazeY = y; };
+
+async function main() {
+  try {
+    if (!window.PIXI || !window.PIXI.live2d) {
+      showErr("Live2D libraries did not load (offline?). Check internet on first run.");
+      return;
+    }
+    const app = new PIXI.Application({
+      view: document.getElementById("canvas"),
+      autoStart: true,
+      resizeTo: window,
+      backgroundAlpha: 0,
+      antialias: true,
+    });
+    AV.app = app;
+
+    const model = await PIXI.live2d.Live2DModel.from(
+      "hiyori/hiyori_pro_t11.model3.json",
+      { autoInteract: false }
+    );
+    AV.model = model;
+    app.stage.addChild(model);
+
+    layout();
+    window.addEventListener("resize", layout);
+
+    // Disable the library's own eye-blink / breath so we control them,
+    // but keep idle motion + physics running.
+    AV.ready = true;
+
+    // Per-frame update
+    app.ticker.add((dt) => update(dt));
+  } catch (e) {
+    showErr("Avatar load error: " + (e && e.message ? e.message : e));
+  }
+}
+
+function layout() {
+  const m = AV.model;
+  if (!m) return;
+  const W = window.innerWidth, H = window.innerHeight;
+  const b = m.internalModel;
+  const modelH = b.height || 1000;
+  // Zoom for a HEAD + SHOULDERS portrait crop. A gentler zoom (2.8x) plus more
+  // headroom keeps the full hair/head inside the frame, cropping at the chest.
+  const scale = (H * 2.8) / modelH;
+  m.scale.set(scale);
+  // Anchor a bit below the very top of the model art so there is clear headroom
+  // above the hair; the crop lands on the chest at the bottom.
+  m.anchor.set(0.5, 0.10);
+  m.x = W * 0.5;
+  // Push the whole model DOWN so the top of the head clears the window edge.
+  m.y = H * 0.22;
+}
+
+let blinkTimer = 0, blinkNext = 2.5, blinkPhase = "open", blinkT = 0;
+
+function update(dt) {
+  if (!AV.ready || !AV.model) return;
+  const secs = dt / 60.0;   // PIXI dt is ~frames; approx to seconds
+  AV.t += secs;
+
+  const core = AV.model.internalModel.coreModel;
+  const P = AV.P;
+  const setP = (id, v) => { try { core.setParameterValueById(id, v); } catch (e) {} };
+
+  // ── Lip-sync: smooth the audio level, drive mouth open ──
+  const targetMouth = (AV.state === "speaking") ? AV.audioLevel : 0;
+  AV.mouthSmooth += (targetMouth - AV.mouthSmooth) * 0.35;
+  setP(P.mouthOpen, AV.mouthSmooth);
+
+  // ── Emotion buckets ──
+  const e = AV.emotion || "";
+  const isHappy = (e === "happy" || e === "excited" || e === "cheerful" ||
+                   e === "laughing" || e === "energetic");
+  const isSad   = (e === "sad" || e === "empathetic");
+  const isCalm  = (e === "calming" || e === "neutral" || e === "calm");
+  const isThink = (e === "thinking" || e === "curious");
+  const isSurp  = (e === "surprised");
+
+  // ── Mouth form (smile / frown) by emotion ──
+  let form = 0;
+  if (isHappy) form = 0.8;
+  else if (isSad) form = -0.5;
+  else if (isThink) form = -0.1;
+  // Smooth mouth form so expression changes glide, not snap.
+  AV.formSmooth = (AV.formSmooth || 0) + (form - (AV.formSmooth || 0)) * 0.15;
+  setP(P.mouthForm, AV.formSmooth);
+
+  // ── Blink state machine ──
+  blinkTimer += secs;
+  if (blinkPhase === "open" && blinkTimer >= blinkNext) { blinkPhase = "closing"; blinkT = 0; }
+  let eyeOpen = 1.0;
+  if (blinkPhase === "closing") {
+    blinkT += secs; eyeOpen = 1.0 - Math.min(1, blinkT / 0.06);
+    if (blinkT >= 0.06) { blinkPhase = "opening"; blinkT = 0; }
+  } else if (blinkPhase === "opening") {
+    blinkT += secs; eyeOpen = Math.min(1, blinkT / 0.10);
+    if (blinkT >= 0.10) { blinkPhase = "open"; blinkTimer = 0; blinkNext = 2.5 + Math.random() * 3.5; }
+  }
+  // Surprised keeps eyes wide; happy squints a touch.
+  if (isSurp) eyeOpen = Math.max(eyeOpen, 1.2);
+  else if (isHappy) eyeOpen *= 0.92;
+  setP(P.eyeLOpen, eyeOpen);
+  setP(P.eyeROpen, eyeOpen);
+
+  // ── Eye gaze ──
+  setP(P.eyeBallX, AV.gazeX);
+  setP(P.eyeBallY, -AV.gazeY);
+
+  // ── Eyebrows by emotion (smoothed) ──
+  let brow = 0;
+  if (isHappy) brow = 0.4;
+  else if (isSad) brow = -0.5;
+  else if (isSurp) brow = 1.0;
+  else if (isThink) brow = 0.3;
+  AV.browSmooth = (AV.browSmooth || 0) + (brow - (AV.browSmooth || 0)) * 0.15;
+  setP(P.browLY, AV.browSmooth);
+  setP(P.browRY, AV.browSmooth);
+
+  // ── Idle head sway + breathing (subtle, always alive) ──
+  const sway = Math.sin(AV.t * 0.8);
+  const bob = Math.sin(AV.t * 1.3);
+  // When speaking, add a touch more head motion tied to voice
+  const talkBoost = (AV.state === "speaking") ? AV.mouthSmooth : 0;
+  setP(P.angleX, sway * 6 + AV.gazeX * 8 + Math.sin(AV.t * 4) * talkBoost * 3);
+  setP(P.angleY, bob * 4 - AV.gazeY * 6 + talkBoost * 4);
+  setP(P.angleZ, sway * 3);
+  setP(P.bodyAngleX, sway * 3);
+  setP(P.breath, (Math.sin(AV.t * 1.2) * 0.5 + 0.5));
+}
+
+main();
+</script>
+</body>
+</html>
