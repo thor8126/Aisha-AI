@@ -14,7 +14,8 @@ The .env file can then be cleared of sensitive values (keep only non-secret conf
 import os
 import sys
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+from aisha.paths import PROJECT_ROOT
+BASE_DIR = PROJECT_ROOT
 
 # Key names we manage (maps env var name → credential service name)
 MANAGED_KEYS = {

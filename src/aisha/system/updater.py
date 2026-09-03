@@ -10,7 +10,7 @@ Design (no-conflict, in-place update for a one-folder PyInstaller build):
      OVER the same folder means no duplicate/parallel installs.
 
 Usage:
-    from updater import check_for_update, apply_update
+    from aisha.system.updater import check_for_update, apply_update
     info = check_for_update()          # returns dict or None
     if info: apply_update(info)        # downloads + schedules swap + exits
 
@@ -31,7 +31,7 @@ import urllib.error
 import zipfile
 
 try:
-    from version import VERSION, GITHUB_OWNER, GITHUB_REPO
+    from aisha.core.version import VERSION, GITHUB_OWNER, GITHUB_REPO
 except Exception:
     VERSION, GITHUB_OWNER, GITHUB_REPO = "0.0.0", "thor8126", "Aisha-AI"
 

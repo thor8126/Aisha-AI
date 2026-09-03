@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import sys
 import subprocess
-from aisha_logger import log
+from aisha.utils.logger import log
 
 
 def send_windows_toast(title: str, message: str):
@@ -17,7 +17,7 @@ def send_windows_toast(title: str, message: str):
 
     # 1. Try PyQt6 GUI Tray Signal if active
     try:
-        from aisha_gui import SIGNALS
+        from aisha.ui.gui import SIGNALS
         # If GUI is active, trigger through GUI signal bridge
         if hasattr(SIGNALS, "toast_requested"):
             SIGNALS.toast_requested.emit(title, message)

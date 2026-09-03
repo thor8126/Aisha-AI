@@ -17,7 +17,8 @@ import logging
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+from aisha.paths import PROJECT_ROOT
+BASE_DIR = PROJECT_ROOT
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -41,16 +42,10 @@ COOLDOWN_RESET = 600.0       # If Aisha runs 10+ min without crash, reset backof
 
 
 def run_watchdog(max_restarts=50, extra_args=None):
-    """Launch and monitor aisha.py, auto-restarting on crash with exponential backoff."""
+    """Launch and monitor Aisha, auto-restarting on crash with exponential backoff."""
     python_exe = sys.executable
-    aisha_script = os.path.join(BASE_DIR, "aisha.py")
-
-    if not os.path.exists(aisha_script):
-        wdlog.error(f"aisha.py not found at {aisha_script}")
-        print(f"❌ aisha.py not found at {aisha_script}")
-        return
-
-    cmd = [python_exe, aisha_script]
+    # Launch the package entry point (python -m aisha) from the project root.
+    cmd = [python_exe, "-m", "aisha"]
     if extra_args:
         cmd.extend(extra_args)
 
@@ -65,9 +60,14 @@ def run_watchdog(max_restarts=50, extra_args=None):
         wdlog.info(f"Launching Aisha (attempt #{crash_count + 1})...")
 
         try:
+            # Ensure the package on src/ is importable for `python -m aisha`.
+            env = dict(os.environ)
+            src_dir = os.path.join(BASE_DIR, "src")
+            env["PYTHONPATH"] = src_dir + os.pathsep + env.get("PYTHONPATH", "")
             result = subprocess.run(
                 cmd,
                 cwd=BASE_DIR,
+                env=env,
                 # Don't capture stdout/stderr — let them flow to console/log normally
             )
             exit_code = result.returncode

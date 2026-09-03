@@ -30,9 +30,9 @@ from typing import Any, Callable
 
 import requests
 
-import actions
-import memory as memory_module
-from task_store import TaskStore
+from aisha.system import actions
+from aisha.core import memory as memory_module
+from aisha.core.tasks import TaskStore
 
 
 MAX_TOOL_OUTPUT = 15_000
@@ -2460,7 +2460,7 @@ class ToolRegistry:
             return {"ok": False, "error": str(e)}
 
     def _song_lyrics_generate(self, args: dict) -> dict:
-        from agent_brain import AutonomousAgent
+        from aisha.core.agent import AutonomousAgent
         topic = str(args.get("topic", ""))
         mood = str(args.get("mood", "chill"))
         lang = str(args.get("language", "hindi"))

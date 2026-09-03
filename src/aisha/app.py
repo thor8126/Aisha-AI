@@ -30,16 +30,16 @@ sd = None
 ElevenLabs = None
 
 # Local modules
-import memory as mem
-import actions
-from aisha_logger import log, log_latency
+from aisha.core import memory as mem
+from aisha.system import actions
+from aisha.utils.logger import log, log_latency
 
 # Load environment configuration
 load_dotenv()
 
 # Load API keys from Windows Credential Manager (if stored)
 try:
-    from secure_keys import load_secure_env
+    from aisha.system.secure_keys import load_secure_env
     load_secure_env()
 except Exception:
     pass  # Credential Manager optional — falls back to .env
@@ -599,9 +599,9 @@ class AishaAssistant:
             ]
             print(f'🧠 Heavy tasks: Bay of Assets ({boa_url}) -> {", ".join(self.heavy_models)}')
 
-        import agent_brain
-        from assistant_tools import ToolRegistry
-        from task_store import TaskStore
+        from aisha.core import agent
+        from aisha.tools.registry import ToolRegistry
+        from aisha.core.tasks import TaskStore
 
         self.task_store = TaskStore()
         self.tool_registry = ToolRegistry(
@@ -617,7 +617,7 @@ class AishaAssistant:
         # AgentRouter is only used if NVIDIA isn't configured.
         fb_client = self.nvidia_client or self.fallback_client
         fb_models = self.nvidia_models or self.fallback_models
-        self.agent = agent_brain.AutonomousAgent(
+        self.agent = agent.AutonomousAgent(
             self.ai_client,
             tool_registry=self.tool_registry,
             on_tool_callback=self._handle_tool_step,
@@ -649,7 +649,7 @@ class AishaAssistant:
         # Start Global Windows Hotkey Listener (Ctrl + Shift + A)
         if not self.text_only:
             try:
-                from hotkey_manager import GlobalHotkeyListener
+                from aisha.system.hotkeys import GlobalHotkeyListener
                 self._hotkey_listener = GlobalHotkeyListener(self._on_global_hotkey)
                 self._hotkey_listener.start()
             except Exception as e:
@@ -709,7 +709,7 @@ class AishaAssistant:
     def _handle_tool_step(self, step_index: int, tool_calls: list):
         """Tool step callback — pushes a live activity label to the GUI per step."""
         try:
-            from aisha_gui import SIGNALS
+            from aisha.ui.gui import SIGNALS
             SIGNALS.state_changed.emit("thinking")
             if tool_calls:
                 label = self._tool_step_label(tool_calls[0])
@@ -840,7 +840,7 @@ class AishaAssistant:
         else:
             self._wake_requested.set()
             try:
-                from aisha_gui import SIGNALS
+                from aisha.ui.gui import SIGNALS
                 SIGNALS.state_changed.emit("listening")
             except Exception:
                 pass
@@ -876,7 +876,7 @@ class AishaAssistant:
         print(f"\n🌸 Aisha: {text.strip()}")
         log.info(f"SPEAK: {text.strip()[:120]}")
         try:
-            from aisha_gui import SIGNALS
+            from aisha.ui.gui import SIGNALS
             SIGNALS.state_changed.emit("speaking")
             SIGNALS.aisha_reply.emit(text.strip())
             SIGNALS.activity.emit(0, "")  # done working — clear the step feed
@@ -908,7 +908,7 @@ class AishaAssistant:
 
         # Drive the avatar's facial expression to match what she's saying.
         try:
-            from aisha_gui import SIGNALS as _ESIG
+            from aisha.ui.gui import SIGNALS as _ESIG
             _ESIG.emotion_changed.emit(response_emotion)
         except Exception:
             pass
@@ -968,7 +968,7 @@ class AishaAssistant:
             total = len(mono)
             win = max(1, int(samplerate * 0.045))
             try:
-                from aisha_gui import SIGNALS as _SIG
+                from aisha.ui.gui import SIGNALS as _SIG
             except Exception:
                 _SIG = None
 
@@ -1056,7 +1056,7 @@ class AishaAssistant:
         _query_start = time.time()
         print(f"\n👤 Aap: {user_text}")
         try:
-            from aisha_gui import SIGNALS
+            from aisha.ui.gui import SIGNALS
             SIGNALS.user_speech.emit(user_text.strip())
             SIGNALS.state_changed.emit("thinking")
             SIGNALS.activity.emit(0, "")  # clear any previous step feed
@@ -1105,7 +1105,7 @@ class AishaAssistant:
 
         # Inject live active window context
         try:
-            import actions
+            from aisha.system import actions
             active_win = actions.get_active_window_info()
             if active_win.get("title") and active_win.get("title") != "Desktop":
                 full_system_prompt += (
@@ -1154,7 +1154,7 @@ class AishaAssistant:
         try:
             # Emit "thinking" state to GUI
             try:
-                from aisha_gui import SIGNALS
+                from aisha.ui.gui import SIGNALS
                 SIGNALS.state_changed.emit("thinking")
             except Exception:
                 pass
@@ -1199,7 +1199,7 @@ class AishaAssistant:
                         if text:
                             log.info(f"Delivering due reminder: {text}")
                             try:
-                                from notifications import send_windows_toast
+                                from aisha.system.notifications import send_windows_toast
                                 send_windows_toast("Aisha Reminder ⏰", text)
                             except Exception:
                                 pass
@@ -1378,7 +1378,7 @@ class AishaAssistant:
                             self._wake_requested.clear()
                             print("\n✨ Woken up by Global Hotkey [Ctrl + Shift + A]!")
                             try:
-                                from aisha_gui import SIGNALS
+                                from aisha.ui.gui import SIGNALS
                                 SIGNALS.state_changed.emit("listening")
                             except Exception:
                                 pass
@@ -1580,7 +1580,8 @@ def parse_args():
     return parser.parse_args()
 
 
-if __name__ == "__main__":
+def main():
+    """Console entry point (invoked by `python -m aisha`)."""
     arguments = parse_args()
     assistant = AishaAssistant(
         text_only=arguments.text or bool(arguments.ask),
@@ -1594,20 +1595,20 @@ if __name__ == "__main__":
         assistant.run(idle_timeout=arguments.idle_timeout)
     else:
         # Default: Launch Assistant in background thread + Native Screen Layover HUD & System Tray
-        import aisha_gui
-        layover, tray = aisha_gui.launch_aisha_gui(assistant)
+        from aisha.ui import gui
+        layover, tray = gui.launch_aisha_gui(assistant)
 
         # Background: check GitHub for a newer release (frozen builds only).
         def _bg_update_check():
             try:
-                import updater
+                from aisha.system import updater
                 if not updater.is_frozen():
                     return
                 info = updater.check_for_update()
                 if info:
                     log.info(f"Update available: v{info['version']}")
                     try:
-                        from aisha_gui import SIGNALS
+                        from aisha.ui.gui import SIGNALS
                         SIGNALS.update_available.emit(info)
                     except Exception:
                         pass
@@ -1617,4 +1618,8 @@ if __name__ == "__main__":
 
         bg_worker = threading.Thread(target=assistant.run, kwargs={"idle_timeout": arguments.idle_timeout}, daemon=True)
         bg_worker.start()
-        sys.exit(aisha_gui.QApplication.instance().exec())
+        sys.exit(gui.QApplication.instance().exec())
+
+
+if __name__ == "__main__":
+    main()

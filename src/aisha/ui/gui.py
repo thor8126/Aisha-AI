@@ -79,9 +79,11 @@ except Exception:
     _WEBENGINE_OK = False
 
 # ----------------------------------------------------------------------
-# Paths
+# Paths — anchored to the project root (see aisha.paths), NOT this file's folder,
+# so assets/fonts, assets/live2d, memory.json resolve correctly after the src/ move.
 # ----------------------------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+from aisha.paths import PROJECT_ROOT
+BASE_DIR = PROJECT_ROOT
 MEMORY_FILE = os.path.join(BASE_DIR, "memory.json")
 
 # ----------------------------------------------------------------------
@@ -2547,7 +2549,7 @@ class AishaTray(QSystemTrayIcon):
         if not info:
             return
         try:
-            import updater
+            from aisha.system import updater
             self.showMessage("Aisha", "Downloading update… she'll restart when ready.",
                              QSystemTrayIcon.MessageIcon.Information, 5000)
             if updater.apply_update(info):

@@ -10,7 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import doctor
+from aisha.system import doctor
 
 
 class DoctorTests(unittest.TestCase):
@@ -47,7 +47,7 @@ class DoctorTests(unittest.TestCase):
 
     def test_online_endpoint_guard_blocks_private_resolution_without_network(self) -> None:
         private = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.8", 443))]
-        with patch("doctor.socket.getaddrinfo", return_value=private):
+        with patch("aisha.system.doctor.socket.getaddrinfo", return_value=private):
             with self.assertRaisesRegex(ValueError, "local or non-public"):
                 doctor._validate_online_endpoint("https://private.example.test")
         with self.assertRaisesRegex(ValueError, "public HTTPS"):
@@ -60,7 +60,7 @@ class DoctorTests(unittest.TestCase):
         fake_client = SimpleNamespace(messages=fake_messages)
         public = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
 
-        with patch("doctor.socket.getaddrinfo", return_value=public), patch(
+        with patch("aisha.system.doctor.socket.getaddrinfo", return_value=public), patch(
             "anthropic.Anthropic", return_value=fake_client
         ) as constructor:
             check = doctor.check_online_model(
@@ -79,9 +79,9 @@ class DoctorTests(unittest.TestCase):
     def test_main_exit_code_tracks_only_critical_failures(self) -> None:
         warning_only = [doctor.Check("optional", "WARN", "missing")]
         critical_failure = [doctor.Check("required", "FAIL", "missing", critical=True)]
-        with patch("doctor.run_checks", return_value=warning_only), contextlib.redirect_stdout(io.StringIO()):
+        with patch("aisha.system.doctor.run_checks", return_value=warning_only), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(doctor.main([]), 0)
-        with patch("doctor.run_checks", return_value=critical_failure), contextlib.redirect_stdout(io.StringIO()):
+        with patch("aisha.system.doctor.run_checks", return_value=critical_failure), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(doctor.main([]), 1)
 
 

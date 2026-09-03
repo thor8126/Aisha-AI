@@ -3,7 +3,7 @@ aisha_logger.py — Structured File Logging for Aisha AI
 Centralized logging with automatic file rotation.
 
 All modules should use:
-    from aisha_logger import log
+    from aisha.utils.logger import log
     log.info("message")
     log.warning("message")
     log.error("message")
@@ -16,8 +16,8 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_DIR = os.path.join(BASE_DIR, "logs")
+from aisha.paths import PROJECT_ROOT
+LOG_DIR = os.path.join(PROJECT_ROOT, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
 LOG_FILE = os.path.join(LOG_DIR, "aisha.log")

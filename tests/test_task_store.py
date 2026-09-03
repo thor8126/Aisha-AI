@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
-from task_store import TaskStore
+from aisha.core.tasks import TaskStore
 
 
 class TaskStoreTests(unittest.TestCase):

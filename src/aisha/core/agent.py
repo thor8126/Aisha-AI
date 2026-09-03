@@ -24,7 +24,7 @@ import concurrent.futures
 from dataclasses import dataclass, field
 from typing import Any
 
-from assistant_tools import TOOL_DEFINITIONS, ToolRegistry, execute_tool
+from aisha.tools.registry import TOOL_DEFINITIONS, ToolRegistry, execute_tool
 
 
 def _truncate_runaway(text: str) -> str:

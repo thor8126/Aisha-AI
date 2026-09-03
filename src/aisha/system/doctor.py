@@ -25,19 +25,21 @@ from typing import Iterable
 from urllib.parse import urlsplit
 
 
-ROOT = Path(__file__).resolve().parent
+from aisha.paths import PROJECT_ROOT
+ROOT = Path(PROJECT_ROOT)
 DEFAULT_BASE_URL = "https://agentrouter.org"
 DEFAULT_MODEL = "deepseek-v4-flash"
 
+# Core modules, resolved under the src/ package after the restructure.
 CORE_FILES = (
-    "actions.py",
-    "agent_brain.py",
-    "aisha.py",
-    "aisha_gui.py",
-    "assistant_tools.py",
-    "memory.py",
-    "startup_manager.py",
-    "task_store.py",
+    "src/aisha/system/actions.py",
+    "src/aisha/core/agent.py",
+    "src/aisha/app.py",
+    "src/aisha/ui/gui.py",
+    "src/aisha/tools/registry.py",
+    "src/aisha/core/memory.py",
+    "src/aisha/system/startup.py",
+    "src/aisha/core/tasks.py",
 )
 
 DEPENDENCIES = (

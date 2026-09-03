@@ -6,7 +6,7 @@ from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from agent_brain import AutonomousAgent
+from aisha.core.agent import AutonomousAgent
 
 
 class FakeMessages:
@@ -183,7 +183,7 @@ class AutonomousAgentTests(unittest.TestCase):
         client = FakeClient([TemporaryApiError("rate limited"), text_response("Recovered")])
         agent = AutonomousAgent(client, tool_registry=FakeRegistry())
 
-        with patch("agent_brain.time.sleep") as sleep:
+        with patch("aisha.core.agent.time.sleep") as sleep:
             answer = agent.run_task("Hello", "system")
 
         self.assertEqual(answer, "Recovered")

@@ -8,8 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from assistant_tools import ToolRegistry
-from task_store import TaskStore
+from aisha.tools.registry import ToolRegistry
+from aisha.core.tasks import TaskStore
 
 
 class ToolRegistryTests(unittest.TestCase):
@@ -163,12 +163,12 @@ class ToolRegistryTests(unittest.TestCase):
             self.registry._validate_public_url("http://localhost/private")
 
         private_result = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 80))]
-        with patch("assistant_tools.socket.getaddrinfo", return_value=private_result):
+        with patch("aisha.tools.registry.socket.getaddrinfo", return_value=private_result):
             with self.assertRaisesRegex(ValueError, "Local/private"):
                 self.registry._validate_public_url("https://internal.example.test/")
 
         public_result = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
-        with patch("assistant_tools.socket.getaddrinfo", return_value=public_result):
+        with patch("aisha.tools.registry.socket.getaddrinfo", return_value=public_result):
             self.registry._validate_public_url("https://public.example.test/resource")
 
     def test_unknown_tools_and_invalid_arguments_return_structured_errors(self) -> None:

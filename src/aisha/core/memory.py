@@ -14,7 +14,8 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
-MEMORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory.json")
+from aisha.paths import PROJECT_ROOT
+MEMORY_FILE = os.path.join(PROJECT_ROOT, "memory.json")
 _LOCK = threading.RLock()
 
 DEFAULT_MEMORY = {
@@ -251,7 +252,7 @@ def remove_fact(memory, fact):
 # ----------------------------------------------------------------------
 # SQLite FTS5 Full-Text Search Engine for Long-Term Recall
 # ----------------------------------------------------------------------
-DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".assistant_data")
+DB_DIR = os.path.join(PROJECT_ROOT, ".assistant_data")
 DB_FILE = os.path.join(DB_DIR, "memory.db")
 
 

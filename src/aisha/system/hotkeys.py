@@ -13,7 +13,7 @@ import threading
 import time
 from typing import Callable
 
-from aisha_logger import log
+from aisha.utils.logger import log
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32

@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from assistant_tools import ToolRegistry
-from task_store import TaskStore
+from aisha.tools.registry import ToolRegistry
+from aisha.core.tasks import TaskStore
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "prompt_routing_cases.json"
