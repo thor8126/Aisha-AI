@@ -1,0 +1,48 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Virtual environments and Python caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Aisha's private local state
+.assistant_data/
+memory.json
+memory.json.tmp
+*.db
+*.sqlite
+*.sqlite3
+
+# Audio and media caches
+assets/audio/cache/
+
+# OS / editor junk
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Logs and crash dumps
+*.log
+logs/*.log
+*.tmp
+*.pid
+
+# Packaging
+*.spec
+*.exe
+*.msi
