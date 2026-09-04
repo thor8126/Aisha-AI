@@ -1570,7 +1570,12 @@ def parse_args():
     parser.add_argument("--text", action="store_true", help="Use terminal text chat; skip microphone, Whisper, and TTS")
     parser.add_argument("--ask", metavar="MESSAGE", help="Run one text-mode request and exit")
     parser.add_argument("--dictate", action="store_true", help="Start real-time voice-to-text dictation mode into active window")
-    parser.add_argument("--idle-timeout", type=float, default=30.0, help="Seconds of silence before auto-closing (default: 30)")
+    parser.add_argument(
+        "--idle-timeout",
+        type=float,
+        default=os.getenv("AISHA_IDLE_TIMEOUT", "30"),
+        help="Seconds of silence before auto-closing (default: AISHA_IDLE_TIMEOUT or 30)",
+    )
     return parser.parse_args()
 
 

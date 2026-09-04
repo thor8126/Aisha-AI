@@ -252,6 +252,7 @@ For the `send_email` tool:
 |:---|:---|:---|
 | `AISHA_DATA_DIR` | Where tasks, notes, reminders are stored | `.assistant_data` |
 | `AISHA_API_TYPE` | Force API client type (`openai` or `anthropic`) | auto-detected |
+| `AISHA_IDLE_TIMEOUT` | Seconds of silence before the active session sleeps | `30` |
 
 ---
 
