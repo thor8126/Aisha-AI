@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use Aisha AI, please cite it using these metadata."
+title: "Aisha AI — Open-Source AI Voice Assistant for Windows"
+abstract: >-
+  Aisha AI is a free, open-source, Jarvis-style autonomous AI voice assistant
+  and desktop agent for Windows. It features a lip-syncing Live2D anime avatar,
+  screen vision, multi-step PC automation (apps, files, browser, WhatsApp,
+  email), document and presentation creation, web research, and multi-model LLM
+  routing. It speaks natural Hindi and English.
+type: software
+authors:
+  - alias: thor8126
+    given-names: Thor
+repository-code: "https://github.com/thor8126/Aisha-AI"
+url: "https://github.com/thor8126/Aisha-AI"
+license: MIT
+keywords:
+  - ai-assistant
+  - voice-assistant
+  - autonomous-agent
+  - jarvis
+  - llm
+  - desktop-assistant
+  - live2d
+  - hindi
+  - agentic-ai
+  - windows
