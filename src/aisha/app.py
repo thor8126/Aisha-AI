@@ -1574,7 +1574,18 @@ def parse_args():
     parser.add_argument("--ask", metavar="MESSAGE", help="Run one text-mode request and exit")
     parser.add_argument("--dictate", action="store_true", help="Start real-time voice-to-text dictation mode into active window")
     parser.add_argument("--version", action="store_true", help="Print the Aisha AI version and exit")
-    parser.add_argument("--idle-timeout", type=float, default=30.0, help="Seconds of silence before auto-closing (default: 30)")
+    # Default from AISHA_IDLE_TIMEOUT env var, coerced to float so it's numeric
+    # even when the flag isn't passed (argparse's type= only converts CLI values).
+    try:
+        _idle_default = float(os.getenv("AISHA_IDLE_TIMEOUT", "30"))
+    except (TypeError, ValueError):
+        _idle_default = 30.0
+    parser.add_argument(
+        "--idle-timeout",
+        type=float,
+        default=_idle_default,
+        help="Seconds of silence before auto-closing (default: AISHA_IDLE_TIMEOUT or 30)",
+    )
     return parser.parse_args()
 
 
