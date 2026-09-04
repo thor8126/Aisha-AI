@@ -30,6 +30,7 @@ ElevenLabs = None
 
 # Local modules
 from aisha.core import memory as mem
+from aisha.core.version import VERSION
 from aisha.system import actions
 from aisha.utils.logger import log, log_latency
 
@@ -1570,6 +1571,7 @@ def parse_args():
     parser.add_argument("--text", action="store_true", help="Use terminal text chat; skip microphone, Whisper, and TTS")
     parser.add_argument("--ask", metavar="MESSAGE", help="Run one text-mode request and exit")
     parser.add_argument("--dictate", action="store_true", help="Start real-time voice-to-text dictation mode into active window")
+    parser.add_argument("--version", action="store_true", help="Print the Aisha AI version and exit")
     parser.add_argument("--idle-timeout", type=float, default=30.0, help="Seconds of silence before auto-closing (default: 30)")
     return parser.parse_args()
 
@@ -1616,6 +1618,10 @@ def _first_run_key_check() -> bool:
 def main():
     """Console entry point (invoked by `python -m aisha`)."""
     arguments = parse_args()
+
+    if arguments.version:
+        print(f"Aisha AI v{VERSION}")
+        return
 
     # First-run guard: no keys → guide the user instead of a cryptic crash.
     if _first_run_key_check():
