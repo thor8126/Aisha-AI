@@ -1,11 +1,3 @@
-<!-- Language + SEO meta: edit these in GitHub repo Settings → About -->
-<!--
-  Recommended GitHub Topics (add in repo Settings):
-  ai-assistant, voice-assistant, python, windows, hindi, hands-free,
-  autonomous-agent, desktop-assistant, jarvis, ai-companion, pyqt6,
-  whisper, elevenlabs, local-ai, open-source, hindi-ai, desktop-ai
--->
-
 <p align="center">
   <img src="assets/aisha_banner.png" alt="Aisha AI — Autonomous Hindi Voice Assistant for Windows" width="720" />
 </p>
@@ -37,6 +29,14 @@
   <a href="#quick-start"><strong>Quick Start</strong></a> ·
   <a href="#voice-commands"><strong>Commands</strong></a> ·
   <a href="#contributing"><strong>Contributing</strong></a>
+</p>
+
+---
+
+<p align="center">
+  <img src="assets/demo.gif" alt="Aisha AI demo — voice command creates a presentation and plays a song, with a lip-syncing Live2D avatar" width="340" />
+  <br>
+  <sub><em>Voice command → Aisha researches, builds a presentation, and plays a song — with a live Live2D avatar.</em></sub>
 </p>
 
 ---
