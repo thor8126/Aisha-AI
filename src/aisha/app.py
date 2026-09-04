@@ -66,7 +66,7 @@ MAX_RECORD_SECONDS = 15  # Maximum listening duration per turn
 # Includes Whisper transcription variants (it often mishears Hindi differently)
 WAKE_WORDS = {
     # --- Name triggers ---
-    "aisha", "ayesha", "aesha", "aisa", "aaysha", "aaisha", "esha",
+    "aisha", "ayesha", "aesha", "aisa", "aaysha", "aaisha",
     "ऐशा", "आयशा", "ऐशा सुनो", "आयशा सुनो",
     # --- Generic Hindi starters (and Whisper variants) ---
     "suno", "sunno", "sun no", "sun", "sunn", "suniye", "suno ji",
