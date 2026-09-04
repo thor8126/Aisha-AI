@@ -43,9 +43,11 @@
 
 ## What is Aisha?
 
-**Aisha AI** is a fully autonomous Hindi voice assistant that lives on your Windows desktop. She speaks natural Hindi and Hinglish, controls your PC with a screen-aware AI brain, remembers your preferences across sessions, and runs silently in the background — always ready when you say *"Hey Aisha"*.
+**Aisha AI is a free, open-source AI voice assistant for Windows** — a Jarvis-style autonomous agent that lives on your desktop. She speaks natural Hindi and English (Hinglish), controls your PC with a screen-aware LLM brain, remembers your preferences across sessions, and runs silently in the background — always ready when you say *"Hey Aisha"*.
 
-Unlike a chatbot, Aisha is a **real AI companion**: she opens apps, searches the web, creates documents and presentations, manages files, sends WhatsApp messages, reads what's on your screen, and drives the browser autonomously — all with a voice, a personality, and an animated avatar.
+Unlike a chatbot, Aisha is a **real AI companion and desktop agent**: she opens apps, searches the web, creates Word documents and PowerPoint presentations, manages files, sends WhatsApp messages, reads what's on your screen with AI vision, plays music, and drives the browser autonomously — all with a voice, a personality, and an animated **Live2D anime avatar** that lip-syncs to her speech.
+
+> **Looking for an open-source Jarvis / AI desktop assistant / voice-controlled PC agent for Windows?** That's exactly what Aisha is.
 
 ## Key Features
 
@@ -535,3 +537,7 @@ This project is licensed under the **MIT License** — see [LICENSE](LICENSE) fo
   <a href="https://github.com/thor8126/Aisha-AI/issues">🐛 Report a bug</a> ·
   <a href="https://github.com/thor8126/Aisha-AI/blob/main/CONTRIBUTING.md">🤝 Contribute</a>
 </p>
+
+---
+
+<sub>**Topics:** open-source Jarvis · AI voice assistant for Windows · autonomous AI agent · LLM desktop assistant · Hindi voice assistant · Live2D avatar assistant · voice-controlled PC automation · AI companion · screen vision agent · speech-to-text · text-to-speech · agentic AI · PyQt6 · Whisper · ElevenLabs · Groq · Python desktop app</sub>
