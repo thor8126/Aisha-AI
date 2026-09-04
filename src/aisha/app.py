@@ -19,7 +19,6 @@ import threading
 import traceback
 from pathlib import Path
 from datetime import datetime
-from dotenv import load_dotenv
 
 # The text-only mode intentionally avoids importing the heavy audio stack.
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
@@ -34,15 +33,10 @@ from aisha.core import memory as mem
 from aisha.system import actions
 from aisha.utils.logger import log, log_latency
 
-# Load environment configuration
-load_dotenv()
-
-# Load API keys from Windows Credential Manager (if stored)
-try:
-    from aisha.system.secure_keys import load_secure_env
-    load_secure_env()
-except Exception:
-    pass  # Credential Manager optional — falls back to .env
+# Load environment configuration (exe-aware: reads .env next to the executable,
+# creates a template on first run, and pulls from Credential Manager if present).
+from aisha.config import load_config
+_CONFIG_STATUS = load_config()
 
 # Direct `python aisha.py` launches can inherit the legacy Windows cp1252 console.
 # Use UTF-8 so Hindi text and status icons never crash the assistant.
@@ -1580,9 +1574,53 @@ def parse_args():
     return parser.parse_args()
 
 
+def _first_run_key_check() -> bool:
+    """If required API keys are missing, guide the user and open the .env file.
+    Returns True if the app should stop (keys missing), False to continue.
+    """
+    if _CONFIG_STATUS.get("has_required"):
+        return False
+    env_path = _CONFIG_STATUS.get("env_path", ".env")
+    msg = (
+        "\n" + "=" * 62 + "\n"
+        "  Aisha needs an API key before she can start.\n"
+        f"  A settings file has been created here:\n    {env_path}\n\n"
+        "  Open it, paste your key into TOKEN=\"...\" (free key at\n"
+        "  https://groq.com), save, and launch Aisha again.\n"
+        + "=" * 62 + "\n"
+    )
+    print(msg)
+    try:
+        log.warning("Startup blocked: required API key missing.")
+    except Exception:
+        pass
+    # Open the .env in the default editor so the user can fill it in immediately.
+    try:
+        os.startfile(env_path)  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    # In the desktop (frozen) case, also show a native popup so it's not missed.
+    if getattr(sys, "frozen", False):
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                f"Aisha needs an API key.\n\nEdit this file and add your key:\n{env_path}\n\n"
+                "Get a free key at https://groq.com, then relaunch Aisha.",
+                "Aisha — Setup", 0x40)
+        except Exception:
+            pass
+    return True
+
+
 def main():
     """Console entry point (invoked by `python -m aisha`)."""
     arguments = parse_args()
+
+    # First-run guard: no keys → guide the user instead of a cryptic crash.
+    if _first_run_key_check():
+        return
+
     assistant = AishaAssistant(
         text_only=arguments.text or bool(arguments.ask),
     )

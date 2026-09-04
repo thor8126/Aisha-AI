@@ -1,0 +1,54 @@
+name: Build Windows EXE
+
+# Build + attach the exe to a GitHub Release when a version tag is pushed,
+# e.g.  git tag v1.0.1 && git push origin v1.0.1
+# The auto-updater (aisha.system.updater) reads these releases.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}   # allow manual runs too
+
+permissions:
+  contents: write          # needed to create the release / upload assets
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install PyQt6-WebEngine pyinstaller python-pptx python-docx openpyxl
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Build EXE
+        run: pyinstaller aisha.spec --noconfirm
+
+      - name: Zip the build
+        run: Compress-Archive -Path dist/Aisha/* -DestinationPath Aisha-AI-windows.zip
+        shell: pwsh
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aisha-AI-windows
+          path: Aisha-AI-windows.zip
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Aisha-AI-windows.zip
+          generate_release_notes: true

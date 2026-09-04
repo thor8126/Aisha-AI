@@ -93,36 +93,51 @@ Unlike a chatbot, Aisha is a **real AI companion**: she opens apps, searches the
 
 ## Quick Start
 
-### Prerequisites
+There are two ways to run Aisha: **download the ready-made app** (easiest) or **run from source** (for developers).
 
-- **Windows 10/11** (64-bit)
-- **Python 3.10+** — [download here](https://www.python.org/downloads/windows/) (check *"Add python.exe to PATH"*)
-- **Microphone** (any USB or built-in mic)
+### Option A — Download the app (no Python needed)
 
-### Installation
+1. Go to the [**Releases page**](https://github.com/thor8126/Aisha-AI/releases) and download the latest `Aisha-AI-windows.zip`.
+2. Unzip it anywhere and run **`Aisha.exe`**.
+3. On first launch, Aisha creates a `.env` settings file next to the exe and opens it for you. **Paste your API key** into `TOKEN="..."` (get a free one at [groq.com](https://groq.com)), save, and relaunch.
+4. That's it — she calibrates your mic, greets you, and starts listening.
+
+> The app auto-updates: when a new release is published, Aisha offers to update from the tray menu.
+
+### Option B — Run from source
+
+**Prerequisites:** Windows 10/11 (64-bit), [Python 3.10+](https://www.python.org/downloads/windows/) (check *"Add python.exe to PATH"*), a microphone.
 
 ```bash
-# 1. Clone the repo
+# 1. Clone
 git clone https://github.com/thor8126/Aisha-AI.git
 cd Aisha-AI
 
-# 2. Install dependencies (creates .venv automatically)
-install.bat
+# 2. Install dependencies
+pip install -r requirements.txt
+pip install PyQt6-WebEngine python-pptx python-docx openpyxl
 
 # 3. Configure your API keys
-copy .env.example .env
-# Edit .env — see Configuration below
+copy .env.example .env      # then edit .env — see Configuration below
 
-# 4. Launch Aisha
-start.bat
+# 4. Launch
+python run.py               # or:  python -m aisha  (with src on PYTHONPATH)
 ```
 
 Aisha will calibrate your mic, greet you, and start listening.
 
+**Other launch modes:**
+
+```bash
+python run.py --text        # keyboard chat, no mic/voice
+python run.py --cli         # voice in the terminal, no overlay
+python run.py --ask "kya time hua hai"   # one-shot question, then exit
+```
+
 ### Health Check
 
 ```bash
-python doctor.py
+python -m aisha.system.doctor   # or: python run.py then check logs/aisha.log
 ```
 
 ---
@@ -131,14 +146,17 @@ python doctor.py
 
 ### `.env` File
 
-Copy `.env.example` to `.env` and fill in your keys:
+All settings and API keys live in a `.env` file.
+
+- **From source:** copy `.env.example` to `.env` and edit it.
+- **From the packaged app:** Aisha creates a `.env` next to `Aisha.exe` on first launch and opens it for you — just paste your key and relaunch. The app always reads the `.env` sitting beside the executable, so it works no matter where you launched it from.
 
 ```bash
-copy .env.example .env
+copy .env.example .env       # from source
 # Then edit .env with your favorite text editor
 ```
 
-> **Never commit `.env` to version control** — it contains your API keys. It's already in `.gitignore`.
+> **Never commit `.env` to version control** — it contains your API keys. It's already in `.gitignore`. (Optionally, store keys in Windows Credential Manager via `python -m aisha.system.secure_keys store` and keep `.env` empty of secrets.)
 
 ### AI Providers
 
@@ -289,29 +307,34 @@ Aisha understands **natural Hindi, Hinglish, and English**. Just speak naturally
 
 ## Architecture
 
+The code lives in a proper `src/aisha` package:
+
 ```
-┌───────────────────────────────────────────────────────────────┐
-│                      aisha.py                                 │
-│              Main orchestrator & voice loop                   │
-├──────────┬────────────┬────────────┬──────────────────────────┤
-│  STT     │   AI Brain │    TTS     │         GUI              │
-│ faster-  │  agent_    │ ElevenLabs │     aisha_gui.py         │
-│ whisper  │  brain.py  │  + SAPI5   │  PyQt6 overlay + tray    │
-│ INT8 CPU │            │  fallback  │  Avatar · HUD · Tray     │
-├──────────┴────────────┴────────────┴──────────────────────────┤
-│                  assistant_tools.py                           │
-│         25+ autonomous PC automation tools                   │
-│  (web research · file ops · browser · apps · vision · etc.)  │
-├───────────────────────────────────────────────────────────────┤
-│  actions.py          │  memory.py        │  task_store.py     │
-│  Windows automation  │  Persistent       │  Tasks · Notes ·   │
-│  (mouse/keyboard)    │  user memory      │  Reminders         │
-├───────────────────────────────────────────────────────────────┤
-│  secure_keys.py      │  aisha_logger.py  │  watchdog.py       │
-│  Windows Credential  │  Structured logs  │  Auto-restart      │
-│  Manager storage     │  with rotation    │  with backoff      │
-└───────────────────────────────────────────────────────────────┘
+src/aisha/
+├── app.py              Main orchestrator & voice loop (entry: python -m aisha)
+├── config.py           Exe-aware .env loading + first-run key setup
+├── paths.py            Project-root path resolver (assets, logs, data)
+├── core/
+│   ├── agent.py        Multi-step agent brain + model routing/failover
+│   ├── memory.py       Persistent memory (JSON + SQLite FTS5)
+│   ├── tasks.py        Tasks, notes, reminders
+│   └── version.py      App version (auto-updater reads this)
+├── tools/
+│   └── registry.py     25+ autonomous tools (web, files, browser, vision, docs)
+├── system/
+│   ├── actions.py      Windows automation (mouse / keyboard / apps)
+│   ├── updater.py      GitHub-Releases auto-updater
+│   ├── watchdog.py     Crash auto-restart with backoff
+│   ├── secure_keys.py  Windows Credential Manager storage
+│   ├── notifications.py · startup.py · doctor.py · hotkeys.py
+├── ui/
+│   └── gui.py          PyQt6 overlay, tray, Live2D avatar, activity feed
+└── utils/
+    └── logger.py       Structured rotating logs
 ```
+
+**Pipeline:** faster-whisper (STT, offline) → agent brain (routing + tools) →
+ElevenLabs / Windows SAPI5 (TTS) → PyQt6 overlay with the Live2D avatar.
 
 ### AI Routing
 
@@ -389,33 +412,45 @@ Contributions are welcome! Whether it's a bug fix, a new tool, a UI improvement,
 5. **Push**: `git push origin feature/your-feature`
 6. **Open a Pull Request** with a clear description
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide. Use the issue templates for [bugs](https://github.com/thor8126/Aisha-AI/issues/new?template=bug_report.yml) and [features](https://github.com/thor8126/Aisha-AI/issues/new?template=feature_request.yml). Every PR runs the test suite automatically via GitHub Actions.
+
 ### Good First Issues
 
-- [ ] Add real anime sprite art for the avatar (`assets/avatar/`)
-- [ ] Improve the procedural avatar face with more expressions
-- [ ] Add more voice presets and emotion mappings
+- [ ] Add more voice presets and emotion → avatar mappings
 - [ ] Write unit tests for `web_research` and screen vision
-- [ ] Improve the Windows installer with auto-update
-- [ ] Add email tool (read inbox, draft replies)
-- [ ] Better error messages when API keys are missing
-- [ ] Keyboard shortcuts for common actions
+- [ ] Add an email tool (read inbox, draft replies)
+- [ ] Add a calendar / reminders integration
+- [ ] Improve STT robustness in noisy environments
+- [ ] Add an in-app settings dialog for API keys (instead of editing `.env`)
 
 ### Development Setup
 
 ```bash
 git clone https://github.com/thor8126/Aisha-AI.git
 cd Aisha-AI
-install.bat
+pip install -r requirements.txt
+pip install PyQt6-WebEngine python-pptx python-docx openpyxl pytest
+python -m pytest        # run the tests
+python run.py           # launch the app
 ```
-
-Then edit and run with `start.bat`. Check logs in `logs/aisha.log`.
 
 ### Code Style
 
 - Follow existing patterns (type hints, docstrings, error handling)
-- Run `python doctor.py` before submitting — all checks should pass
-- Keep tools self-contained in `assistant_tools.py`
-- GUI changes go in `aisha_gui.py`
+- Run `python -m pytest` before submitting — all tests should pass
+- New tools go in `src/aisha/tools/registry.py` (register with a `ToolSpec` + schema)
+- GUI changes go in `src/aisha/ui/gui.py`
+- Never crash the agent loop — tools return error dicts, not exceptions
+
+### Building the EXE
+
+```bash
+pip install pyinstaller
+pyinstaller aisha.spec --noconfirm     # output: dist/Aisha/Aisha.exe
+```
+
+A tagged push (`git tag v1.0.1 && git push origin v1.0.1`) triggers the GitHub
+Actions workflow that builds the exe and publishes it as a Release automatically.
 
 ---
 

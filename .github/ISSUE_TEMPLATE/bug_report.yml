@@ -1,0 +1,51 @@
+name: 🐛 Bug Report
+description: Something isn't working as expected
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting! Please fill in the details so we can reproduce it.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did Aisha do, and what did you expect instead?
+      placeholder: I said "play Kesariya" and she opened a random video...
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Launch Aisha
+        2. Say / type "..."
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Paste anything useful from logs/aisha.log (remove any API keys first!).
+      render: shell
+  - type: dropdown
+    id: run-mode
+    attributes:
+      label: How are you running Aisha?
+      options:
+        - From source (python run.py)
+        - Packaged Aisha.exe
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: v1.0.0 or commit hash
+  - type: input
+    id: os
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 23H2

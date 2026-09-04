@@ -53,3 +53,6 @@ _shot.py
 _recolor.py
 _img.py
 *.orig.png
+
+# Keep our PyInstaller spec (build workflow needs it)
+!aisha.spec
