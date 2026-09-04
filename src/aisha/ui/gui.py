@@ -2618,6 +2618,7 @@ class AishaTray(QSystemTrayIcon):
             ("⏸ Pause Listening", self._tray_toggle_pause),
             ("📋 Copy Last Reply", self._tray_copy_reply),
             ("🔄 Recalibrate Mic", self._recalibrate),
+            ("🔑 Edit Settings (API keys)", self._edit_settings),
             ("🗑 Reset Memory", self._reset_memory),
             ("🔧 Run Diagnostics", self._run_diag),
             ("📂 Open App Folder", self._open_folder),
@@ -2687,6 +2688,25 @@ class AishaTray(QSystemTrayIcon):
     def _open_folder(self):
         import subprocess
         subprocess.Popen(["explorer.exe", BASE_DIR])
+
+    def _edit_settings(self):
+        """Open the .env settings file so the user can change API keys / voice / models.
+        Creates it from a template first if it doesn't exist yet."""
+        try:
+            from aisha.config import ENV_PATH, _write_template_if_missing
+            _write_template_if_missing()
+            os.startfile(ENV_PATH)  # type: ignore[attr-defined]
+            self.showMessage(
+                "Aisha — Settings",
+                "Edit your API keys, then Exit and relaunch Aisha for changes to apply.",
+                QSystemTrayIcon.MessageIcon.Information, 6000)
+        except Exception:
+            # Fallback: just open the app folder so they can find the .env manually.
+            try:
+                import subprocess
+                subprocess.Popen(["explorer.exe", BASE_DIR])
+            except Exception:
+                pass
 
 
 # ----------------------------------------------------------------------
