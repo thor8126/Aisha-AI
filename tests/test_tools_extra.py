@@ -3,12 +3,22 @@ music metadata parsing, document/presentation/spreadsheet creation,
 contacts cross-script matching, and safe path building."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import tempfile
 import unittest
 
 from aisha.tools.registry import ToolRegistry
+
+
+def _have(mod: str) -> bool:
+    return importlib.util.find_spec(mod) is not None
+
+
+HAVE_DOCX = _have("docx")
+HAVE_PPTX = _have("pptx")
+HAVE_XLSX = _have("openpyxl")
 
 
 class MusicMetadataTests(unittest.TestCase):
@@ -44,6 +54,7 @@ class FileCreationTests(unittest.TestCase):
         self.assertEqual(os.path.normpath(self.reg._output_dir()),
                          os.path.normpath(self._tmp))
 
+    @unittest.skipUnless(HAVE_DOCX, "python-docx not installed")
     def test_create_document_writes_a_real_docx(self):
         d = self._data(self.reg.execute("create_document", {
             "title": "Test Essay",
@@ -60,6 +71,7 @@ class FileCreationTests(unittest.TestCase):
         self.assertIn("Test Essay", text)
         self.assertIn("Hello world.", text)
 
+    @unittest.skipUnless(HAVE_DOCX, "python-docx not installed")
     def test_append_to_extends_existing_docx(self):
         first = self._data(self.reg.execute("create_document", {
             "title": "Doc A", "sections": [{"heading": "H", "body": "body"}],
@@ -74,6 +86,7 @@ class FileCreationTests(unittest.TestCase):
         n_after = len(Document(upd["path"]).paragraphs)
         self.assertGreater(n_after, n_before)
 
+    @unittest.skipUnless(HAVE_PPTX, "python-pptx not installed")
     def test_create_presentation_writes_pptx_with_slides(self):
         d = self._data(self.reg.execute("create_presentation", {
             "title": "Deck", "theme": "violet",
@@ -88,6 +101,7 @@ class FileCreationTests(unittest.TestCase):
         # title slide + 2 content slides
         self.assertEqual(len(prs.slides._sldIdLst), 3)
 
+    @unittest.skipUnless(HAVE_XLSX, "openpyxl not installed")
     def test_create_spreadsheet_writes_xlsx(self):
         d = self._data(self.reg.execute("create_spreadsheet", {
             "sheets": [{"name": "Budget", "headers": ["Item", "Cost"],
