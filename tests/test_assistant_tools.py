@@ -105,6 +105,16 @@ class ToolRegistryTests(unittest.TestCase):
         self.assertFalse(self.registry._is_read_only_shell(complex_read))
         self.assertFalse(self.registry._is_read_only_shell("git status && whoami"))
 
+    def test_created_path_is_copied_to_clipboard_best_effort(self) -> None:
+        with patch.object(self.registry, "_clipboard") as clipboard:
+            self.assertTrue(self.registry._copy_created_path("C:\\AishaFiles\\notes.docx"))
+            clipboard.assert_called_once_with(
+                {"action": "write", "text": "C:\\AishaFiles\\notes.docx"}
+            )
+
+        with patch.object(self.registry, "_clipboard", side_effect=RuntimeError("unavailable")):
+            self.assertFalse(self.registry._copy_created_path("C:\\AishaFiles\\notes.docx"))
+
     def test_task_note_and_reminder_state_flows_through_json_tool_results(self) -> None:
         created = self.execute("task_manager", {"action": "create", "title": "Pay bill", "priority": "high"})
         task_id = created["data"]["id"]
