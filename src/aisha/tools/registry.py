@@ -2027,6 +2027,14 @@ class ToolRegistry:
         except Exception:
             return False
 
+    def _copy_created_path(self, path: str) -> bool:
+        """Best-effort copy of a newly created file path to the clipboard."""
+        try:
+            self._clipboard({"action": "write", "text": path})
+            return True
+        except Exception:
+            return False
+
     def _resolve_existing_docx(self, ref: str) -> str | None:
         """Find an existing .docx by absolute path or by name in the output folder."""
         ref = str(ref or "").strip().strip('"')
@@ -2097,9 +2105,11 @@ class ToolRegistry:
             path = self._unique_path(args.get("filename") or title, "docx")
             status = "created"
         doc.save(path)
+        copied = self._copy_created_path(path)
         opened = self._maybe_open(path, bool(args.get("open_after", True)))
         return {"ok": True, "status": status, "type": "docx", "path": path,
-                "sections": len(sections), "paragraphs": para_count, "opened": opened}
+                "sections": len(sections), "paragraphs": para_count, "opened": opened,
+                "copied_to_clipboard": copied}
 
     # Built-in color themes so decks look designed, not plain white.
     _PPT_THEMES = {
@@ -2230,9 +2240,11 @@ class ToolRegistry:
 
         path = self._unique_path(args.get("filename") or title, "pptx")
         prs.save(path)
+        copied = self._copy_created_path(path)
         opened = self._maybe_open(path, bool(args.get("open_after", True)))
         return {"ok": True, "status": "created", "type": "pptx", "path": path,
-                "slides": made + 1, "theme": theme_name or "auto", "opened": opened}
+                "slides": made + 1, "theme": theme_name or "auto", "opened": opened,
+                "copied_to_clipboard": copied}
 
     def _create_spreadsheet(self, args: dict) -> dict:
         from openpyxl import Workbook
@@ -2266,9 +2278,11 @@ class ToolRegistry:
             wb.create_sheet(title="Sheet1")
         path = self._unique_path(args.get("filename") or "spreadsheet", "xlsx")
         wb.save(path)
+        copied = self._copy_created_path(path)
         opened = self._maybe_open(path, bool(args.get("open_after", True)))
         return {"ok": True, "status": "created", "type": "xlsx", "path": path,
-                "sheets": len(wb.sheetnames), "rows": total_rows, "opened": opened}
+                "sheets": len(wb.sheetnames), "rows": total_rows, "opened": opened,
+                "copied_to_clipboard": copied}
 
     def _weather(self, args: dict) -> dict:
         city = str(args.get("city", "")).strip()
